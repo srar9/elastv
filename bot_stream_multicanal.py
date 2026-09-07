@@ -640,122 +640,124 @@ def get_live_matches_agenda(curr_key):
         return MATCHES_AGENDA_CACHE["messages"]
 
     try:
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
-        now_art = now_utc - datetime.timedelta(hours=3) # Referencia horaria UTC-3
-        current_minutes = now_art.hour * 60 + now_art.minute
+        leagues = [
+            ("esp.1", "🇪🇸 LaLiga"),
+            ("eng.1", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League"),
+            ("ita.1", "🇮🇹 Serie A"),
+            ("ger.1", "🇩🇪 Bundesliga"),
+            ("arg.1", "🇦🇷 Liga Argentina"),
+            ("col.1", "🇨🇴 Liga Colombia"),
+            ("mex.1", "🇲🇽 Liga MX"),
+            ("uefa.champions", "🏆 Champions League"),
+            ("conmebol.libertadores", "🏆 Copa Libertadores"),
+            ("uefa.europa", "🏆 Europa League")
+        ]
 
-        headers_scrap = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-        r = requests.get("https://rojadirecta.ceo/", headers=headers_scrap, timeout=6)
-        if r.status_code == 200:
-            page_html = r.text
-            rows = re.findall(r'<tr>(.*?)</tr>', page_html, re.DOTALL)
-            
-            events_dict = {}
-            for row in rows:
-                m = re.search(r'<td>(.*?):<a\s+href="[^"]*stream/([^"]+)"[^>]*><b>(.*?)</b></a></td>.*?<span\s+class="t">([^<]+)</span>', row, re.DOTALL)
-                if m:
-                    league = html.unescape(m.group(1).strip())
-                    match_title = html.unescape(m.group(3).strip())
-                    time_str = m.group(4).strip()
-                    
-                    full_title = f"{league}: {match_title}"
-                    if full_title not in events_dict:
-                        events_dict[full_title] = {
-                            "time": time_str,
-                            "league": league,
-                            "title": match_title,
-                            "full_title": full_title
+        live_events = []
+        upcoming_events = []
+        
+        for lcode, lname in leagues:
+            try:
+                url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lcode}/scoreboard"
+                r = requests.get(url, timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    for ev in data.get("events", []):
+                        comps = ev.get("competitions", [{}])[0]
+                        competitors = comps.get("competitors", [])
+                        if len(competitors) == 2:
+                            c1 = competitors[0].get("team", {}).get("displayName", "")
+                            c2 = competitors[1].get("team", {}).get("displayName", "")
+                            mname = f"{c1} vs {c2}"
+                        else:
+                            mname = ev.get("name", "")
+                        
+                        status_obj = ev.get("status", {}).get("type", {})
+                        detail = status_obj.get("detail", "")
+                        is_live = status_obj.get("state") == "in"
+                        is_pre = status_obj.get("state") == "pre"
+                        
+                        # Mostrar solo partidos en vivo o programados para hoy
+                        if not (is_live or is_pre):
+                            continue
+                        
+                        time_display = ""
+                        d_str = ev.get("date", "")
+                        if d_str:
+                            try:
+                                dt = datetime.datetime.fromisoformat(d_str.replace("Z", "+00:00"))
+                                dt_local = dt - datetime.timedelta(hours=3) # Horario Sudamérica (UTC-3)
+                                time_display = dt_local.strftime("%H:%M")
+                            except Exception:
+                                time_display = ""
+
+                        full_title = f"{lname}: {mname}"
+                        iptv_channels = smart_match_channel_resolver(full_title)
+                        if not iptv_channels:
+                            continue
+
+                        status_tag = f"🔴 EN VIVO ({detail})" if is_live else f"({detail})"
+                        ev_data = {
+                            "time": time_display,
+                            "title": full_title,
+                            "status_tag": status_tag,
+                            "channels": iptv_channels
                         }
+                        if is_live:
+                            live_events.append(ev_data)
+                        else:
+                            upcoming_events.append(ev_data)
+            except Exception:
+                pass
 
-            live_events = []
-            upcoming_events = []
+        if live_events or upcoming_events:
+            messages = []
+            current_msg = ""
             
-            for full_title, ev_info in events_dict.items():
-                time_str = ev_info["time"]
-                iptv_options = smart_match_channel_resolver(full_title)
-                if not iptv_options:
-                    continue
-
-                status_tag = ""
-                is_live = False
-                is_upcoming = False
-                
-                if ":" in time_str:
-                    try:
-                        h, m = map(int, time_str.split(":"))
-                        ev_minutes = h * 60 + m
-                        diff = current_minutes - ev_minutes
-                        if 0 <= diff <= 125:
-                            status_tag = f"🔴 EN VIVO"
-                            is_live = True
-                        elif diff < 0:
-                            status_tag = f"⏰ En {abs(diff)}m"
-                            is_upcoming = True
-                    except Exception:
-                        is_upcoming = True
-                else:
-                    is_upcoming = True
+            if live_events:
+                current_msg += "🔴 <b>PARTIDOS EN VIVO AHORA MISMO (IPTV DEDICADO - 0% LAG):</b>\n\n"
+                for ev in live_events:
+                    time_header = f"[{ev['time']}] " if ev['time'] else ""
+                    block = f"🏆 <b>{time_header}{html.escape(ev['title'])}</b> {ev['status_tag']}\n"
+                    for ch in ev["channels"]:
+                        block += f"• 📺 <i>{html.escape(ch['name'])}:</i>\n  <code>/stream {ch['id']} {curr_key}</code>\n"
+                    block += "\n"
                     
-                ev_data = {
-                    "time": time_str,
-                    "title": full_title,
-                    "status_tag": status_tag,
-                    "channels": iptv_options
-                }
-                
-                if is_live:
-                    live_events.append(ev_data)
-                elif is_upcoming:
-                    upcoming_events.append(ev_data)
-                    
-            if live_events or upcoming_events:
-                messages = []
-                current_msg = ""
-                
-                if live_events:
-                    current_msg += "🔴 <b>PARTIDOS EN VIVO AHORA MISMO (IPTV DEDICADO - 0% LAG):</b>\n\n"
-                    for ev in live_events:
-                        block = f"🏆 <b>[{html.escape(ev['time'])}] {html.escape(ev['title'])}</b> {ev['status_tag']}\n"
-                        for ch in ev["channels"]:
-                            block += f"• 📺 <i>{html.escape(ch['name'])}:</i>\n  <code>/stream {ch['id']} {curr_key}</code>\n"
-                        block += "\n"
-                        
-                        if len(current_msg) + len(block) > 3500:
-                            messages.append(current_msg)
-                            current_msg = block
-                        else:
-                            current_msg += block
-                            
-                if upcoming_events:
-                    up_header = "\n⏰ <b>PRÓXIMOS PARTIDOS DE HOY (IPTV DEDICADO):</b>\n\n"
-                    if len(current_msg) + len(up_header) > 3500:
+                    if len(current_msg) + len(block) > 3500:
                         messages.append(current_msg)
-                        current_msg = up_header
+                        current_msg = block
                     else:
-                        current_msg += up_header
+                        current_msg += block
                         
-                    for ev in upcoming_events:
-                        block = f"🏆 <b>[{html.escape(ev['time'])}] {html.escape(ev['title'])}</b> ({ev['status_tag']})\n"
-                        for ch in ev["channels"]:
-                            block += f"• 📺 <i>{html.escape(ch['name'])}:</i>\n  <code>/stream {ch['id']} {curr_key}</code>\n"
-                        block += "\n"
-                        
-                        if len(current_msg) + len(block) > 3500:
-                            messages.append(current_msg)
-                            current_msg = block
-                        else:
-                            current_msg += block
-                            
-                if current_msg:
+            if upcoming_events:
+                up_header = "\n⏰ <b>PRÓXIMOS PARTIDOS DE HOY (IPTV DEDICADO):</b>\n\n"
+                if len(current_msg) + len(up_header) > 3500:
                     messages.append(current_msg)
+                    current_msg = up_header
+                else:
+                    current_msg += up_header
                     
-                MATCHES_AGENDA_CACHE["timestamp"] = now
-                MATCHES_AGENDA_CACHE["messages"] = messages
-                return messages
+                for ev in upcoming_events:
+                    time_header = f"[{ev['time']}] " if ev['time'] else ""
+                    block = f"🏆 <b>{time_header}{html.escape(ev['title'])}</b> {ev['status_tag']}\n"
+                    for ch in ev["channels"]:
+                        block += f"• 📺 <i>{html.escape(ch['name'])}:</i>\n  <code>/stream {ch['id']} {curr_key}</code>\n"
+                    block += "\n"
+                    
+                    if len(current_msg) + len(block) > 3500:
+                        messages.append(current_msg)
+                        current_msg = block
+                    else:
+                        current_msg += block
+                        
+            if current_msg:
+                messages.append(current_msg)
+                
+            MATCHES_AGENDA_CACHE["timestamp"] = now
+            MATCHES_AGENDA_CACHE["messages"] = messages
+            return messages
     except Exception as e:
-        print("Error obteniendo agenda dinámica:", e)
+        print("Error obteniendo agenda deportiva:", e)
 
     return get_sports_menu_messages(curr_key)
 
