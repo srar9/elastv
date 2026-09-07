@@ -17,9 +17,10 @@ API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 CONFIG_FILE = "stream_config.json"
 
 # Servidor IPTV dedicado (Xtream Codes - Máxima estabilidad 0% lag)
-IPTV_SERVER = os.environ.get("IPTV_SERVER", "http://evestv.leptis.live")
-IPTV_USER = os.environ.get("IPTV_USER", "BE15ERDV")
-IPTV_PASS = os.environ.get("IPTV_PASS", "PXELERB9")
+IPTV_SERVER = os.environ.get("IPTV_SERVER", "http://qpyzyvkm.cdngold.info")
+IPTV_USER = os.environ.get("IPTV_USER", "96PX3Q2J")
+IPTV_PASS = os.environ.get("IPTV_PASS", "24V7N2A1")
+IPTV_MAX_CONNECTIONS = int(os.environ.get("IPTV_MAX_CONNECTIONS", 3))
 HEADERS_IPTV = {"User-Agent": "IPTVSmartersPro"}
 
 # Directorio verificado de Canales IPTV (Enlace directo .ts de alta velocidad)
@@ -425,23 +426,47 @@ def start_single_stream(channel_input, stream_key, chat_id):
     else:
         destination = f"rtmps://dc4-1.rtmp.t.me/s/{clean_key}"
 
-    # Detener transmisiones previas si la cuenta IPTV tiene límite de conexiones
+    # Manejo inteligente de conexiones simultáneas (hasta IPTV_MAX_CONNECTIONS = 3 pantallas)
     with stream_lock:
+        # 1. Si ya existe una transmisión con exactamente esta misma Stream Key, la reemplazamos
         for sid, info in list(active_streams.items()):
+            if info["key"] == clean_key:
+                info["auto_restart"] = False
+                try:
+                    info["process"].terminate()
+                    info["process"].wait(timeout=2)
+                except Exception:
+                    try:
+                        info["process"].kill()
+                    except Exception:
+                        pass
+                try:
+                    if info.get("log_handle"):
+                        info["log_handle"].close()
+                except Exception:
+                    pass
+                del active_streams[sid]
+                break
+
+        # 2. Si se alcanzó el límite máximo de conexiones simultáneas (3 pantallas), liberar la más antigua
+        if len(active_streams) >= IPTV_MAX_CONNECTIONS:
+            oldest_sid = sorted(active_streams.keys(), key=lambda x: active_streams[x]["start_time"])[0]
+            old_info = active_streams[oldest_sid]
+            old_info["auto_restart"] = False
             try:
-                info["process"].terminate()
-                info["process"].wait(timeout=2)
+                old_info["process"].terminate()
+                old_info["process"].wait(timeout=2)
             except Exception:
                 try:
-                    info["process"].kill()
+                    old_info["process"].kill()
                 except Exception:
                     pass
             try:
-                if info.get("log_handle"):
-                    info["log_handle"].close()
+                if old_info.get("log_handle"):
+                    old_info["log_handle"].close()
             except Exception:
                 pass
-            del active_streams[sid]
+            del active_streams[oldest_sid]
 
     with stream_lock:
         stream_id = str(len(active_streams) + 1)
@@ -488,11 +513,13 @@ def start_single_stream(channel_input, stream_key, chat_id):
             "restarts": 0
         }
 
+    active_count = len(active_streams)
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (#{stream_id})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
         f"🌐 <b>Servidor:</b> IPTV Dedicado Xtream (0% Lag / HD)\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
+        f"📡 <b>Pantallas Activas:</b> {active_count}/{IPTV_MAX_CONNECTIONS} simultáneas\n"
         f"⚙️ <b>Audio/Video:</b> 720p @ 30fps (Sincronización AV Bloqueada)\n\n"
         f"🛑 <i>Para detener usa:</i> <code>/stop {stream_id}</code> o <code>/stopall</code>"
     )

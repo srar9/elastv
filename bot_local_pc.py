@@ -11,9 +11,9 @@ BOT_TOKEN = "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE"
 RTMP_SERVER = "rtmps://dc4-1.rtmp.t.me/s/"
 CHANNELS_FILE = os.path.join(os.path.dirname(__file__), "channels_local.json")
 
-IPTV_USER = "BE15ERDV"
-IPTV_PASS = "PXELERB9"
-IPTV_SERVER = "http://evestv.leptis.live"
+IPTV_USER = "96PX3Q2J"
+IPTV_PASS = "24V7N2A1"
+IPTV_SERVER = "http://qpyzyvkm.cdngold.info"
 
 def load_channels():
     if os.path.exists(CHANNELS_FILE):
