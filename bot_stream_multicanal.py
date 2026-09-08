@@ -36,16 +36,6 @@ IPTV_DIRECT_CHANNELS = {
     "espnextra": {"id": "34051", "name": "ESPN Extra HD (Latino)"},
     "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
-    
-    # Disney+ / Star+ Latino (Eventos Deportivos 1 al 7)
-    "disney1": {"id": "1472359", "name": "Disney+ Latino 1 (Eventos/PPV)"},
-    "disney2": {"id": "1472360", "name": "Disney+ Latino 2 (Eventos/PPV)"},
-    "disney3": {"id": "1472361", "name": "Disney+ Latino 3 (Eventos/PPV)"},
-    "disney4": {"id": "1472362", "name": "Disney+ Latino 4 (Eventos/PPV)"},
-    "disney5": {"id": "1472363", "name": "Disney+ Latino 5 (Eventos/PPV)"},
-    "disney6": {"id": "1472364", "name": "Disney+ Latino 6 (Eventos/PPV)"},
-    "disney7": {"id": "1472365", "name": "Disney+ Latino 7 (Eventos/PPV)"},
-    
     # Directv Sports (DSPORTS)
     "dsports": {"id": "33933", "name": "DIRECTV Sports 1 HD (DSports)"},
     "dsports2": {"id": "33932", "name": "DIRECTV Sports 2 HD (DSports 2)"},
@@ -140,7 +130,7 @@ def resolve_channel_input(raw_input):
         if "extra" in clean:
             return "espnextra", "ESPN Extra HD"
         if "7" in clean:
-            return "disney7", "Disney+ Latino 7 (Eventos/PPV)"
+            return "foxsports3", "Fox Sports 3 (ESPN Extra)"
         if "6" in clean:
             return "espn6", "ESPN 6 HD"
         if "5" in clean:
@@ -301,18 +291,20 @@ def smart_match_channel_resolver(title, channels_raw=None):
     
     # 1. Copa Libertadores de América
     if "libertadores" in title_lower:
+        channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
+        channels.append({"id": "foxsports2", "name": "Fox Sports 2 (Argentina)"})
         channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-        channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
-        channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
+        channels.append({"id": "espnpremium", "name": "ESPN Premium HD"})
         return channels
 
     # 2. Copa Sudamericana
     if "sudamericana" in title_lower:
         channels.append({"id": "dsports", "name": "DIRECTV Sports 1 HD (DSports)"})
         channels.append({"id": "dsports2", "name": "DIRECTV Sports 2 HD (DSports 2)"})
+        channels.append({"id": "dsportsplus", "name": "DIRECTV Sports+ HD"})
         channels.append({"id": "espn", "name": "ESPN 1 HD"})
-        channels.append({"id": "disney2", "name": "Disney+ Latino 2 (PPV)"})
+        channels.append({"id": "espnextra", "name": "ESPN Extra HD"})
         return channels
 
     # 3. Eliminatorias Sudamericanas / FIFA / Selecciones
@@ -329,26 +321,28 @@ def smart_match_channel_resolver(title, channels_raw=None):
         if any(team in title_lower for team in ["betis", "villarreal", "villareal", "sociedad", "girona", "athletic", "bilbao"]):
             channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
             channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
-            channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV/Eventos)"})
+            channels.append({"id": "campeones4", "name": "Movistar Liga de Campeones 4 FHD"})
             channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+            channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
             channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
             return channels
 
         # Equipos principales españoles (Real Madrid, Barcelona, Atlético)
         if any(team in title_lower for team in ["real madrid", "barcelona", "atletico madrid", "atlético madrid"]):
             channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
+            channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
             channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
             channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-            channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
             return channels
 
         # Resto de partidos simultáneos de Champions League
         channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
         channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
         channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
+        channels.append({"id": "campeones4", "name": "Movistar Liga de Campeones 4 FHD"})
         channels.append({"id": "espn", "name": "ESPN 1 HD"})
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-        channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
+        channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
         return channels
 
     # 5. Premier League (Inglaterra)
@@ -563,6 +557,18 @@ def search_iptv_channels(query, curr_key):
 def start_single_stream(channel_input, stream_key, chat_id):
     clean_channel_input = clean_arg(channel_input)
     clean_key = clean_arg(stream_key)
+
+    if "disney" in clean_channel_input.lower():
+        return False, (
+            "⚠️ <b>Señales Disney+ Inactivas en el Proveedor IPTV</b>\n\n"
+            "👉 <b>Motivo:</b> En este servidor IPTV, los canales de Disney+ no transmiten los partidos (el proveedor los mantiene en un bucle estático con la placa <i>'EVENTS'</i>).\n\n"
+            "📺 <b>Para ver los partidos usa las señales 100% verificadas en directo:</b>\n"
+            "• <code>/partidos</code> $\\rightarrow$ Agenda de hoy con enlaces directos al partido\n"
+            "• <code>/stream campeones</code> o <code>campeones2</code> (Champions League)\n"
+            "• <code>/stream espn</code> o <code>espn2</code> (ESPN HD)\n"
+            "• <code>/stream foxsports</code> o <code>foxsports2</code> (Fox Sports)\n"
+            "• <code>/stream dsports</code> o <code>dsports2</code> (DIRECTV Sports)"
+        )
 
     source_url, headers_str, channel_name, resolved_slug, ok = resolve_stream_source(clean_channel_input)
     if not ok or not source_url:
@@ -969,15 +975,8 @@ def get_sports_menu_messages(curr_key):
         f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
         f"• ⚽ <b>ESPN Premium HD:</b> <code>/stream espnpremium {curr_key}</code>\n"
         f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-        "🌟 <b>DISNEY+ / STAR+ (PPV SÓLO PARA EVENTOS EN VIVO):</b>\n"
-        "ℹ️ <i>Nota: Emiten en directo durante los partidos; fuera de horario muestran la placa 'EVENTO'.</i>\n"
-        f"• 🏆 <b>Disney+ 1:</b> <code>/stream disney1 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 2:</b> <code>/stream disney2 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 3:</b> <code>/stream disney3 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 4:</b> <code>/stream disney4 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 5:</b> <code>/stream disney5 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 6:</b> <code>/stream disney6 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 7:</b> <code>/stream disney7 {curr_key}</code>\n\n"
+        "📡 <b>SEÑALES EXCLUSIVAS PPV Y COPAS INTERNACIONALES:</b>\n"
+        "💡 <i>Los partidos de Champions League, Europa League y Libertadores se emiten por las multiseñales de Campeones 1-5, Fox Sports 1-3, ESPN 1-6 o canales PPV directos del servidor. En <code>/partidos</code> tienes el canal verificado de cada juego.</i>\n\n"
         "🇨🇴 <b>COLOMBIA, PERÚ & DIRECTV (DSPORTS & WIN):</b>\n"
         f"• ⚽ <b>DIRECTV Sports 1 HD (DSports):</b> <code>/stream dsports {curr_key}</code>\n"
         f"• ⚽ <b>DIRECTV Sports 2 HD (DSports 2):</b> <code>/stream dsports2 {curr_key}</code>\n"
@@ -1068,15 +1067,12 @@ def handle_message(msg):
                 f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
                 f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-                "🌟 <b>DISNEY+ / STAR+ (PPV SÓLO PARA EVENTOS EN VIVO):</b>\n"
-                "ℹ️ <i>Nota: Estas señales emiten solo durante la hora exacta del partido en vivo. Si no hay partido en ese instante, el proveedor muestra la placa 'EVENTO'.</i>\n\n"
-                f"• 🏆 <b>Disney+ 1:</b> <code>/stream disney1 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 2:</b> <code>/stream disney2 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 3:</b> <code>/stream disney3 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 4:</b> <code>/stream disney4 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 5:</b> <code>/stream disney5 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 6:</b> <code>/stream disney6 {curr_key}</code>\n"
-                f"• 🏆 <b>Disney+ 7:</b> <code>/stream disney7 {curr_key}</code>"
+                "🦊 <b>SUITE FOX SPORTS (CONMEBOL LIBERTADORES & COPAS):</b>\n"
+                f"• ⚽ <b>Fox Sports 1 HD:</b> <code>/stream foxsports {curr_key}</code>\n"
+                f"• ⚽ <b>Fox Sports 2 HD:</b> <code>/stream foxsports2 {curr_key}</code>\n"
+                f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream foxsports3 {curr_key}</code>\n"
+                f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
+                "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite el partido que buscas.</i>"
             )
             send_msg(chat_id, espn_msg)
 
