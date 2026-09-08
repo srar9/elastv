@@ -211,23 +211,31 @@ def smart_match_channel_resolver(title, channels_raw=None):
     title_lower = title.lower()
     channels = []
     
-    # 1. Premier League (Inglaterra)
-    if "premier" in title_lower or any(team in title_lower for team in ["arsenal", "aston villa", "chelsea", "liverpool", "manchester", "tottenham", "newcastle", "brighton", "west ham", "fulham", "wolves", "everton"]):
-        channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Argentina)"})
+    # 1. Copa Libertadores de América
+    if "libertadores" in title_lower:
+        channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-        channels.append({"id": "skysportspremier", "name": "Sky Sports Premier League FHD"})
-        channels.append({"id": "daznlaliga", "name": "DAZN / M+ Deportes FHD"})
+        channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
+        channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
         return channels
 
-    # 2. LaLiga Española
-    if "laliga" in title_lower or "espana" in title_lower or any(team in title_lower for team in ["barcelona", "real madrid", "atletico", "rayo vallecano", "sevilla", "betis", "valencia", "villarreal", "athletic", "sociedad", "girona"]):
-        channels.append({"id": "movistarlaliga", "name": "Movistar LaLiga HD"})
-        channels.append({"id": "daznlaliga", "name": "DAZN LaLiga 1 FHD"})
-        channels.append({"id": "daznlaliga2", "name": "DAZN LaLiga 2 FHD"})
-        channels.append({"id": "espn-deportes", "name": "ESPN Deportes USA"})
+    # 2. Copa Sudamericana
+    if "sudamericana" in title_lower:
+        channels.append({"id": "dsports", "name": "DIRECTV Sports 1 HD (DSports)"})
+        channels.append({"id": "dsports2", "name": "DIRECTV Sports 2 HD (DSports 2)"})
+        channels.append({"id": "espn", "name": "ESPN 1 HD"})
+        channels.append({"id": "disney2", "name": "Disney+ Latino 2 (PPV)"})
         return channels
 
-    # 3. Champions League / Europa League / Conference
+    # 3. Eliminatorias Sudamericanas / FIFA / Selecciones
+    if any(k in title_lower for k in ["eliminatorias", "worldq", "friendly", "nations", "argentina vs", "brasil vs", "colombia vs", "uruguay vs", "chile vs", "peru vs"]):
+        channels.append({"id": "tycsports", "name": "TyC Sports HD (Argentina)"})
+        channels.append({"id": "dsports", "name": "DIRECTV Sports 1 HD (DSports)"})
+        channels.append({"id": "dsports2", "name": "DIRECTV Sports 2 HD"})
+        channels.append({"id": "tntsportschile", "name": "TNT Sports Chile HD"})
+        return channels
+
+    # 4. Champions League / Europa League / Conference
     if "champions" in title_lower or "europa league" in title_lower or "conference" in title_lower:
         channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
         channels.append({"id": "espn", "name": "ESPN 1 HD"})
@@ -235,45 +243,68 @@ def smart_match_channel_resolver(title, channels_raw=None):
         channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
         return channels
 
-    # 4. Liga Profesional Argentina / Copa Argentina
+    # 5. Premier League (Inglaterra)
+    if "premier" in title_lower or any(team in title_lower for team in ["arsenal", "aston villa", "chelsea", "liverpool", "manchester", "tottenham", "newcastle", "brighton", "west ham", "fulham", "wolves", "everton"]):
+        channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
+        channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+        channels.append({"id": "skysportspremier", "name": "Sky Sports Premier League FHD"})
+        channels.append({"id": "nbcsports", "name": "NBC Sports FHD"})
+        return channels
+
+    # 6. LaLiga Española
+    if "laliga" in title_lower or "espana" in title_lower or any(team in title_lower for team in ["barcelona", "real madrid", "atletico", "rayo vallecano", "sevilla", "betis", "valencia", "villarreal", "athletic", "sociedad", "girona"]):
+        channels.append({"id": "movistarlaliga", "name": "Movistar LaLiga HD"})
+        channels.append({"id": "daznlaliga", "name": "DAZN LaLiga 1 FHD"})
+        channels.append({"id": "daznlaliga2", "name": "DAZN LaLiga 2 FHD"})
+        channels.append({"id": "espn-deportes", "name": "ESPN Deportes USA"})
+        return channels
+
+    # 7. Liga Profesional Argentina / Copa Argentina
     if any(k in title_lower for k in ["argentina", "boca", "river", "racing", "san lorenzo", "independiente", "velez", "rosario central", "newell", "talleres", "estudiantes", "gimnasia", "huracan"]):
         channels.append({"id": "espnpremium", "name": "ESPN Premium HD (Argentina)"})
         channels.append({"id": "tntsports", "name": "TNT Sports HD (Argentina)"})
         channels.append({"id": "tycsports", "name": "TyC Sports HD (Argentina)"})
         return channels
 
-    # 5. Colombia (Liga BetPlay / Copa Colombia)
+    # 8. Colombia (Liga BetPlay / Copa Colombia)
     if any(k in title_lower for k in ["colombia", "millonarios", "santa fe", "junior", "nacional", "cali", "america de cali", "medellin", "tolima", "bucaramanga", "pereira", "once caldas"]):
         channels.append({"id": "winplus", "name": "Win Sports+ HD (Colombia)"})
         channels.append({"id": "winsports", "name": "Win Sports Colombia HD"})
         return channels
 
-    # 6. Perú (Liga 1 Te Apuesto)
+    # 9. Perú (Liga 1 Te Apuesto)
     if any(k in title_lower for k in ["peru", "perú", "alianza lima", "universitario", "sporting cristal", "melgar", "cienciano", "vallejo", "cusco"]):
         channels.append({"id": "liga1max", "name": "Liga 1 MAX (Perú)"})
         channels.append({"id": "golperu", "name": "Gol Perú HD"})
         return channels
 
-    # 7. Chile (Campeonato Nacional)
+    # 10. Chile (Campeonato Nacional)
     if any(k in title_lower for k in ["chile", "colo colo", "universidad de chile", "universidad catolica", "cobreloa", "union espanola", "coquimbo", "audax"]):
         channels.append({"id": "tntsportschile", "name": "TNT Sports Chile HD"})
         return channels
 
-    # 8. México (Liga MX)
+    # 11. México (Liga MX)
     if any(k in title_lower for k in ["mexico", "méxico", "liga mx", "america", "chivas", "cruz azul", "pumas", "tigres", "monterrey", "toluca", "pachuca", "santos"]):
         channels.append({"id": "tudn_usa", "name": "TUDN USA HD"})
         channels.append({"id": "vix1", "name": "ViX+ TUDN Deportes 1"})
         channels.append({"id": "foxpremium", "name": "Fox Sports Premium HD"})
         return channels
 
-    # 9. Tenis (Grand Slams / US Open / ATP)
+    # 12. Serie A (Italia)
+    if any(k in title_lower for k in ["serie a", "italia", "juventus", "inter", "milan", "roma", "napoli", "lazio", "atalanta", "fiorentina"]):
+        channels.append({"id": "espn", "name": "ESPN 1 HD"})
+        channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+        channels.append({"id": "espn3", "name": "ESPN 3 HD"})
+        return channels
+
+    # 13. Tenis (Grand Slams / ATP)
     if any(k in title_lower for k in ["open", "tenis", "tennis", "alcaraz", "sinner", "djokovic", "us open", "wimbledon", "roland garros", "atp"]):
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
         channels.append({"id": "espn3", "name": "ESPN 3 HD"})
         channels.append({"id": "espnextra", "name": "ESPN Extra HD"})
         return channels
 
-    # 10. Fórmula 1 & MotoGP
+    # 14. Fórmula 1 & MotoGP
     if any(k in title_lower for k in ["formula 1", "f1", "gran premio", "motogp", "moto gp", "verstappen", "hamilton", "alonso", "sainz", "leclerc", "norris"]):
         channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
         channels.append({"id": "foxpremium", "name": "Fox Sports Premium HD"})
@@ -648,25 +679,34 @@ def get_live_matches_agenda(curr_key):
         return MATCHES_AGENDA_CACHE["messages"]
 
     try:
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        today_utc = now_utc.strftime("%Y%m%d")
+
         leagues = [
+            ("conmebol.libertadores", "🏆 Copa Libertadores"),
+            ("conmebol.sudamericana", "🏆 Copa Sudamericana"),
+            ("uefa.champions", "🏆 Champions League"),
+            ("uefa.europa", "🏆 Europa League"),
+            ("fifa.worldq.conmebol", "🌎 Eliminatorias Sudamericanas"),
+            ("uefa.nations", "🇪🇺 UEFA Nations League"),
             ("esp.1", "🇪🇸 LaLiga"),
             ("eng.1", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League"),
             ("ita.1", "🇮🇹 Serie A"),
             ("ger.1", "🇩🇪 Bundesliga"),
             ("arg.1", "🇦🇷 Liga Argentina"),
+            ("arg.copa", "🇦🇷 Copa Argentina"),
             ("col.1", "🇨🇴 Liga Colombia"),
             ("mex.1", "🇲🇽 Liga MX"),
-            ("uefa.champions", "🏆 Champions League"),
-            ("conmebol.libertadores", "🏆 Copa Libertadores"),
-            ("uefa.europa", "🏆 Europa League")
+            ("bra.1", "🇧🇷 Brasileirao")
         ]
 
         live_events = []
         upcoming_events = []
+        finished_events = []
         
         for lcode, lname in leagues:
             try:
-                url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lcode}/scoreboard"
+                url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lcode}/scoreboard?dates={today_utc}"
                 r = requests.get(url, timeout=3)
                 if r.status_code == 200:
                     data = r.json()
@@ -682,18 +722,17 @@ def get_live_matches_agenda(curr_key):
                         
                         status_obj = ev.get("status", {}).get("type", {})
                         detail = status_obj.get("detail", "")
-                        is_live = status_obj.get("state") == "in"
-                        is_pre = status_obj.get("state") == "pre"
+                        state = status_obj.get("state", "")
                         
-                        # Mostrar solo partidos en vivo o programados para hoy
-                        if not (is_live or is_pre):
-                            continue
-                        
-                        time_display = ""
                         d_str = ev.get("date", "")
+                        time_display = ""
                         if d_str:
                             try:
                                 dt = datetime.datetime.fromisoformat(d_str.replace("Z", "+00:00"))
+                                diff_hours = (dt - now_utc).total_seconds() / 3600.0
+                                # Filtrar estrictamente solo partidos de hoy (-5h a +18h)
+                                if diff_hours < -5 or diff_hours > 18:
+                                    continue
                                 dt_local = dt - datetime.timedelta(hours=3) # Horario Sudamérica (UTC-3)
                                 time_display = dt_local.strftime("%H:%M")
                             except Exception:
@@ -704,17 +743,19 @@ def get_live_matches_agenda(curr_key):
                         if not iptv_channels:
                             continue
 
-                        status_tag = f"🔴 EN VIVO ({detail})" if is_live else f"({detail})"
+                        status_tag = f"🔴 EN VIVO ({detail})" if state == "in" else f"({detail})"
                         ev_data = {
                             "time": time_display,
                             "title": full_title,
                             "status_tag": status_tag,
                             "channels": iptv_channels
                         }
-                        if is_live:
+                        if state == "in":
                             live_events.append(ev_data)
-                        else:
+                        elif state == "pre":
                             upcoming_events.append(ev_data)
+                        elif state == "post":
+                            finished_events.append(ev_data)
             except Exception:
                 pass
 
@@ -764,6 +805,16 @@ def get_live_matches_agenda(curr_key):
             MATCHES_AGENDA_CACHE["timestamp"] = now
             MATCHES_AGENDA_CACHE["messages"] = messages
             return messages
+
+        elif finished_events:
+            msg_fin = "🏁 <b>PARTIDOS FINALIZADOS DE HOY:</b>\n\n"
+            for ev in finished_events[:8]:
+                time_header = f"[{ev['time']}] " if ev['time'] else ""
+                msg_fin += f"• {time_header}<b>{html.escape(ev['title'])}</b> ({ev['status_tag']})\n"
+            msg_fin += "\n💡 <i>Usa <code>/canales</code> para ver todas las señales deportivas en directo 24/7.</i>"
+            MATCHES_AGENDA_CACHE["timestamp"] = now
+            MATCHES_AGENDA_CACHE["messages"] = [msg_fin]
+            return [msg_fin]
     except Exception as e:
         print("Error obteniendo agenda deportiva:", e)
 
