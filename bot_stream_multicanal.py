@@ -31,6 +31,8 @@ IPTV_DIRECT_CHANNELS = {
     "espn2": {"id": "30327", "name": "ESPN 2 HD (Sur/Latino)"},
     "espn3": {"id": "30328", "name": "ESPN 3 HD (Sur/Latino)"},
     "espn4": {"id": "1201550", "name": "ESPN 4 HD (Latino)"},
+    "espn5": {"id": "1348533", "name": "ESPN 5 HD"},
+    "espn6": {"id": "1348532", "name": "ESPN 6 HD"},
     "espnextra": {"id": "34051", "name": "ESPN Extra HD (Latino)"},
     "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
@@ -65,12 +67,17 @@ IPTV_DIRECT_CHANNELS = {
     "winplus": {"id": "33945", "name": "Win Sports+ HD (Colombia)"},
     "winsports": {"id": "33944", "name": "Win Sports Colombia HD"},
 
-    # España & LaLiga & Champions
+    # España & LaLiga & Champions League (Multiseñales Oficiales)
     "movistarlaliga": {"id": "30974", "name": "Movistar LaLiga HD"},
     "daznlaliga": {"id": "224832", "name": "DAZN LaLiga 1 FHD"},
     "daznlaliga2": {"id": "224831", "name": "DAZN LaLiga 2 FHD"},
     "hypermotion1": {"id": "6560", "name": "LaLiga TV Hypermotion FHD"},
     "campeones": {"id": "33682", "name": "Movistar Liga de Campeones 1 FHD"},
+    "campeones1": {"id": "33682", "name": "Movistar Liga de Campeones 1 FHD"},
+    "campeones2": {"id": "33683", "name": "Movistar Liga de Campeones 2 FHD"},
+    "campeones3": {"id": "33678", "name": "Movistar Liga de Campeones 3 FHD"},
+    "campeones4": {"id": "33677", "name": "Movistar Liga de Campeones 4 FHD"},
+    "campeones5": {"id": "210788", "name": "Movistar Liga de Campeones 5 FHD"},
     
     # Premier League (UK & USA)
     "skysportspremier": {"id": "29016", "name": "Sky Sports Premier League FHD"},
@@ -132,6 +139,12 @@ def resolve_channel_input(raw_input):
             return "espn-deportes", "ESPN Deportes USA"
         if "extra" in clean:
             return "espnextra", "ESPN Extra HD"
+        if "7" in clean:
+            return "disney7", "Disney+ Latino 7 (Eventos/PPV)"
+        if "6" in clean:
+            return "espn6", "ESPN 6 HD"
+        if "5" in clean:
+            return "espn5", "ESPN 5 HD"
         if "4" in clean:
             return "espn4", "ESPN 4 HD"
         if "3" in clean:
@@ -173,10 +186,18 @@ def resolve_channel_input(raw_input):
         return "winsports", "Win Sports Colombia HD"
 
     # España
-    if "movistar" in clean or "laliga" in clean or "la liga" in clean:
+    if "movistar" in clean or "laliga" in clean or "la liga" in clean or "campeon" in clean or "champ" in clean:
         if "hyper" in clean or "segunda" in clean:
             return "hypermotion1", "LaLiga TV Hypermotion FHD"
         if "champ" in clean or "campeon" in clean:
+            if "5" in clean:
+                return "campeones5", "Movistar Liga de Campeones 5 FHD"
+            if "4" in clean:
+                return "campeones4", "Movistar Liga de Campeones 4 FHD"
+            if "3" in clean:
+                return "campeones3", "Movistar Liga de Campeones 3 FHD"
+            if "2" in clean:
+                return "campeones2", "Movistar Liga de Campeones 2 FHD"
             return "campeones", "Movistar Liga de Campeones 1 FHD"
         return "movistarlaliga", "Movistar LaLiga HD"
         
@@ -204,12 +225,79 @@ def resolve_channel_input(raw_input):
 
     return clean, f"Canal [{clean}]"
 
+# ==============================================================================
+# CACHÉ Y MOTOR DE DESCUBRIMIENTO DINÁMICO DE SEÑALES PPV / EVENTOS
+# ==============================================================================
+PPV_CHANNELS_CACHE = {"timestamp": 0, "streams": []}
+
+def get_cached_ppv_streams():
+    global PPV_CHANNELS_CACHE
+    now = time.time()
+    if now - PPV_CHANNELS_CACHE["timestamp"] < 240 and PPV_CHANNELS_CACHE["streams"]:
+        return PPV_CHANNELS_CACHE["streams"]
+    
+    streams = []
+    # Categoría 68: VIP | UEFA PPV (Partidos en vivo Champions / Europa League)
+    # Categoría 66: VIP | PPV-SPORT EVENTS
+    for cat_id in [68, 66]:
+        try:
+            url = f"{IPTV_SERVER}/player_api.php?username={IPTV_USER}&password={IPTV_PASS}&action=get_live_streams&category_id={cat_id}"
+            r = requests.get(url, headers=HEADERS_IPTV, timeout=4).json()
+            if isinstance(r, list):
+                streams.extend(r)
+        except Exception:
+            pass
+    if streams:
+        PPV_CHANNELS_CACHE["timestamp"] = now
+        PPV_CHANNELS_CACHE["streams"] = streams
+    return streams
+
+def match_team_word(word, text):
+    w = word.lower().strip()
+    if len(w) < 4:
+        return False
+    if w in text or (len(w) >= 5 and w[:5] in text):
+        return True
+    w_clean = re.sub(r'(.)\1+', r'\1', w)
+    t_clean = re.sub(r'(.)\1+', r'\1', text)
+    return w_clean in t_clean
+
+def find_live_ppv_stream_for_match(match_title):
+    try:
+        mname = match_title.split(":", 1)[1].strip() if ":" in match_title else match_title
+        parts = mname.split(" vs ")
+        if len(parts) != 2:
+            return None
+        t1, t2 = parts[0].strip().lower(), parts[1].strip().lower()
+        stopwords = {"club", "deportivo", "athletic", "sporting", "real", "inter", "city", "united"}
+        k1 = [w for w in t1.split() if len(w) > 3 and w not in stopwords] or [t1]
+        k2 = [w for w in t2.split() if len(w) > 3 and w not in stopwords] or [t2]
+
+        ppv_streams = get_cached_ppv_streams()
+        for s in ppv_streams:
+            sname = s.get('name', '').lower()
+            m1 = any(match_team_word(w, sname) for w in k1)
+            m2 = any(match_team_word(w, sname) for w in k2)
+            if m1 and m2:
+                clean_n = re.sub(r'[^\x00-\x7F]+', ' ', s.get('name', '')).strip()
+                return str(s.get('stream_id')), clean_n
+    except Exception:
+        pass
+    return None
+
 def smart_match_channel_resolver(title, channels_raw=None):
     """
     Asigna ÚNICAMENTE canales oficiales de IPTV verificados para cada partido / evento.
+    Detecta automáticamente transmisiones PPV exclusivas del servidor dedicadas al partido.
     """
     title_lower = title.lower()
     channels = []
+
+    # 0. Descubrimiento dinámico de señal PPV dedicada al partido en vivo
+    ppv_match = find_live_ppv_stream_for_match(title)
+    if ppv_match:
+        ppv_id, ppv_name = ppv_match
+        channels.append({"id": ppv_id, "name": f"⭐ Señal Directa del Partido ({ppv_name})"})
     
     # 1. Copa Libertadores de América
     if "libertadores" in title_lower:
@@ -235,12 +323,32 @@ def smart_match_channel_resolver(title, channels_raw=None):
         channels.append({"id": "tntsportschile", "name": "TNT Sports Chile HD"})
         return channels
 
-    # 4. Champions League / Europa League / Conference
+    # 4. Champions League / Europa League / Conference (Multiseñales según partido)
     if "champions" in title_lower or "europa league" in title_lower or "conference" in title_lower:
+        # Equipos españoles secundarios en Champions (Betis, Villarreal, Real Sociedad, Girona, Athletic)
+        if any(team in title_lower for team in ["betis", "villarreal", "villareal", "sociedad", "girona", "athletic", "bilbao"]):
+            channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
+            channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
+            channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV/Eventos)"})
+            channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+            channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
+            return channels
+
+        # Equipos principales españoles (Real Madrid, Barcelona, Atlético)
+        if any(team in title_lower for team in ["real madrid", "barcelona", "atletico madrid", "atlético madrid"]):
+            channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
+            channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
+            channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+            channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
+            return channels
+
+        # Resto de partidos simultáneos de Champions League
         channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
+        channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
+        channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
         channels.append({"id": "espn", "name": "ESPN 1 HD"})
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-        channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
+        channels.append({"id": "disney1", "name": "Disney+ Latino 1 (PPV)"})
         return channels
 
     # 5. Premier League (Inglaterra)
@@ -252,7 +360,7 @@ def smart_match_channel_resolver(title, channels_raw=None):
         return channels
 
     # 6. LaLiga Española
-    if "laliga" in title_lower or "espana" in title_lower or any(team in title_lower for team in ["barcelona", "real madrid", "atletico", "rayo vallecano", "sevilla", "betis", "valencia", "villarreal", "athletic", "sociedad", "girona"]):
+    if "laliga" in title_lower or "espana" in title_lower or "españa" in title_lower:
         channels.append({"id": "movistarlaliga", "name": "Movistar LaLiga HD"})
         channels.append({"id": "daznlaliga", "name": "DAZN LaLiga 1 FHD"})
         channels.append({"id": "daznlaliga2", "name": "DAZN LaLiga 2 FHD"})
@@ -823,12 +931,17 @@ def get_live_matches_agenda(curr_key):
 def get_sports_menu_messages(curr_key):
     msg1 = (
         "🏆 <b>DIRECTORIO DE CANALES DEPORTIVOS (IPTV DEDICADO - 0% LAG)</b>\n\n"
-        "🇪🇸 <b>ESPAÑA, LALIGA & CHAMPIONS (FHD):</b>\n"
+        "🇪🇸 <b>ESPAÑA, LALIGA & CHAMPIONS LEAGUE (FHD):</b>\n"
         f"• ⚽ <b>Movistar LaLiga HD:</b> <code>/stream movistarlaliga {curr_key}</code>\n"
         f"• ⚽ <b>DAZN LaLiga 1 FHD:</b> <code>/stream daznlaliga {curr_key}</code>\n"
         f"• ⚽ <b>DAZN LaLiga 2 FHD:</b> <code>/stream daznlaliga2 {curr_key}</code>\n"
         f"• ⚽ <b>LaLiga TV Hypermotion FHD:</b> <code>/stream hypermotion1 {curr_key}</code>\n"
-        f"• ⚽ <b>Movistar Liga de Campeones FHD:</b> <code>/stream campeones {curr_key}</code>\n\n"
+        f"• 🏆 <b>M+ Liga de Campeones 1 FHD (Principal):</b> <code>/stream campeones {curr_key}</code>\n"
+        f"• 🏆 <b>M+ Liga de Campeones 2 FHD (Multiseñal):</b> <code>/stream campeones2 {curr_key}</code>\n"
+        f"• 🏆 <b>M+ Liga de Campeones 3 FHD (Multiseñal):</b> <code>/stream campeones3 {curr_key}</code>\n"
+        f"• 🏆 <b>M+ Liga de Campeones 4 FHD (Multiseñal):</b> <code>/stream campeones4 {curr_key}</code>\n"
+        f"• 🏆 <b>M+ Liga de Campeones 5 FHD (Multiseñal):</b> <code>/stream campeones5 {curr_key}</code>\n"
+        "💡 <i>En días con varios partidos simultáneos de Champions/Europa League, cada encuentro va por una señal distinta (Campeones 1-5 o Disney+ PPV).</i>\n\n"
         "🏴󠁧󠁢󠁥󠁮󠁧󠁿 <b>PREMIER LEAGUE (INGLATERRA):</b>\n"
         f"• ⚽ <b>Sky Sports Premier League FHD:</b> <code>/stream skysportspremier {curr_key}</code>\n"
         f"• ⚽ <b>Sky Sports Main Events FHD:</b> <code>/stream skysportsmain {curr_key}</code>\n"
@@ -851,11 +964,13 @@ def get_sports_menu_messages(curr_key):
         f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
         f"• ⚽ <b>ESPN Premium HD:</b> <code>/stream espnpremium {curr_key}</code>\n"
         f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
         "🌟 <b>DISNEY+ / STAR+ (PPV SÓLO PARA EVENTOS EN VIVO):</b>\n"
-        "ℹ️ <i>Nota: Emiten solo mientras haya un partido en vivo; fuera de horario muestran 'Evento'.</i>\n"
+        "ℹ️ <i>Nota: Emiten en directo durante los partidos; fuera de horario muestran la placa 'EVENTO'.</i>\n"
         f"• 🏆 <b>Disney+ 1:</b> <code>/stream disney1 {curr_key}</code>\n"
         f"• 🏆 <b>Disney+ 2:</b> <code>/stream disney2 {curr_key}</code>\n"
         f"• 🏆 <b>Disney+ 3:</b> <code>/stream disney3 {curr_key}</code>\n"
@@ -948,6 +1063,8 @@ def handle_message(msg):
                 f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
                 f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
