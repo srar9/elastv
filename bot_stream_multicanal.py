@@ -25,14 +25,27 @@ HEADERS_IPTV = {"User-Agent": "IPTVSmartersPro"}
 
 # Directorio verificado de Canales IPTV (Enlace directo .ts de alta velocidad)
 IPTV_DIRECT_CHANNELS = {
-    # Suite ESPN
-    "espn": {"id": "30326", "name": "ESPN 1 HD (Sur/Argentina)"},
-    "espn2": {"id": "33893", "name": "ESPN 2 HD"},
-    "espn3": {"id": "30328", "name": "ESPN 3 HD"},
-    "espn4": {"id": "1201550", "name": "ESPN 4 HD"},
-    "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
+    # Suite ESPN Latinoamérica (1 al 7) & Disney+
+    "espn": {"id": "30326", "name": "ESPN 1 HD (Sur/Latino)"},
+    "espn1": {"id": "30326", "name": "ESPN 1 HD (Sur/Latino)"},
+    "espn2": {"id": "30327", "name": "ESPN 2 HD (Sur/Latino)"},
+    "espn3": {"id": "30328", "name": "ESPN 3 HD (Sur/Latino)"},
+    "espn4": {"id": "1453275", "name": "ESPN 4 HD (Sur/Latino)"},
+    "espn5": {"id": "4881", "name": "ESPN 5 HD (Sur/Latino - Fox Sports 2)"},
+    "espn6": {"id": "4882", "name": "ESPN 6 HD (Sur/Latino - Fox Sports 3)"},
+    "espn7": {"id": "30329", "name": "ESPN 7 HD (Sur/Latino - ESPN Extra)"},
     "espnextra": {"id": "30329", "name": "ESPN Extra HD"},
+    "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
+    
+    # Disney+ / Star+ Latino (Eventos Deportivos 1 al 7)
+    "disney1": {"id": "1472359", "name": "Disney+ Latino 1 (Eventos/PPV)"},
+    "disney2": {"id": "1472360", "name": "Disney+ Latino 2 (Eventos/PPV)"},
+    "disney3": {"id": "1472361", "name": "Disney+ Latino 3 (Eventos/PPV)"},
+    "disney4": {"id": "1472362", "name": "Disney+ Latino 4 (Eventos/PPV)"},
+    "disney5": {"id": "1472363", "name": "Disney+ Latino 5 (Eventos/PPV)"},
+    "disney6": {"id": "1472364", "name": "Disney+ Latino 6 (Eventos/PPV)"},
+    "disney7": {"id": "1472365", "name": "Disney+ Latino 7 (Eventos/PPV)"},
     
     # Directv Sports (DSPORTS)
     "dsports": {"id": "33933", "name": "DIRECTV Sports 1 HD (DSports)"},
@@ -785,12 +798,17 @@ def get_sports_menu_messages(curr_key):
         f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n"
     )
     msg2 = (
-        "🌎 <b>SUITE COMPLETA ESPN (IPTV DEDICADO):</b>\n"
-        f"• ⚽ <b>ESPN 1 HD (Sur/Argentina):</b> <code>/stream espn {curr_key}</code>\n"
+        "🌎 <b>SUITE COMPLETA ESPN LATINOAMÉRICA (DEL 1 AL 7):</b>\n"
+        f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn1 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN 7 HD:</b> <code>/stream espn7 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
+        f"• ⚽ <b>ESPN Premium HD:</b> <code>/stream espnpremium {curr_key}</code>\n"
+        f"• 🌟 <b>Disney+ Eventos:</b> <code>/stream disney1 {curr_key}</code> a <code>/stream disney7 {curr_key}</code>\n"
         f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
         "🇨🇴 <b>COLOMBIA, PERÚ & DIRECTV (DSPORTS & WIN):</b>\n"
         f"• ⚽ <b>DIRECTV Sports 1 HD (DSports):</b> <code>/stream dsports {curr_key}</code>\n"
@@ -871,15 +889,26 @@ def handle_message(msg):
 
         elif text.startswith("/espn"):
             espn_msg = (
-                "📺 <b>DIRECTORIO DE SEÑALES ESPN (IPTV DEDICADO):</b>\n\n"
-                "🇦🇷 <b>SEÑALES ESPN (HD & PREMIUM):</b>\n"
-                f"• ⚽ <b>ESPN 1 HD (Sur/Argentina):</b> <code>/stream espn {curr_key}</code>\n"
+                "📺 <b>SUITE COMPLETA ESPN LATINOAMÉRICA (DEL 1 AL 7):</b>\n\n"
+                "🇦🇷 <b>SEÑALES ESPN (HD / FHD):</b>\n"
+                f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn1 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 7 HD:</b> <code>/stream espn7 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
-                f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n"
+                f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
+                "🌟 <b>SEÑALES DISNEY+ / STAR+ (EVENTOS EN VIVO 1 AL 7):</b>\n"
+                f"• 🏆 <b>Disney+ 1:</b> <code>/stream disney1 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 2:</b> <code>/stream disney2 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 3:</b> <code>/stream disney3 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 4:</b> <code>/stream disney4 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 5:</b> <code>/stream disney5 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 6:</b> <code>/stream disney6 {curr_key}</code>\n"
+                f"• 🏆 <b>Disney+ 7:</b> <code>/stream disney7 {curr_key}</code>"
             )
             send_msg(chat_id, espn_msg)
 
