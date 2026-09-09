@@ -604,7 +604,7 @@ def search_iptv_channels(query, curr_key):
     except Exception as e:
         return f"❌ Error buscando canales IPTV: {e}"
 
-def start_single_stream(channel_input, stream_key, chat_id):
+def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None):
     clean_channel_input = clean_arg(channel_input)
     clean_key = clean_arg(stream_key)
 
