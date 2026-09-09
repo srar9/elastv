@@ -25,15 +25,16 @@ HEADERS_IPTV = {"User-Agent": "IPTVSmartersPro"}
 
 # Directorio verificado de Canales IPTV (Enlace directo .ts de alta velocidad)
 IPTV_DIRECT_CHANNELS = {
-    # Suite ESPN Latinoamérica (Señales 24/7 Verificadas)
-    "espn": {"id": "30326", "name": "ESPN 1 HD (Sur/Latino)"},
-    "espn1": {"id": "30326", "name": "ESPN 1 HD (Sur/Latino)"},
-    "espn2": {"id": "30327", "name": "ESPN 2 HD (Sur/Latino)"},
-    "espn3": {"id": "30328", "name": "ESPN 3 HD (Sur/Latino)"},
-    "espn4": {"id": "1201550", "name": "ESPN 4 HD (Latino)"},
-    "espn5": {"id": "1348533", "name": "ESPN 5 HD"},
-    "espn6": {"id": "1348532", "name": "ESPN 6 HD"},
-    "espnextra": {"id": "34051", "name": "ESPN Extra HD (Latino)"},
+    # Suite ESPN Latinoamérica (Señales Sur / Argentina Verificadas)
+    "espn": {"id": "30326", "name": "ESPN 1 HD (Sur/Argentina)"},
+    "espn1": {"id": "30326", "name": "ESPN 1 HD (Sur/Argentina)"},
+    "espn2": {"id": "30327", "name": "ESPN 2 HD (Sur/Argentina)"},
+    "espn3": {"id": "30328", "name": "ESPN 3 HD (Sur/Argentina)"},
+    "espn4": {"id": "1453275", "name": "ESPN 4 HD (Sur)"},
+    "espn5": {"id": "4881", "name": "ESPN 5 / Fox Sports 2 HD (Sur)"},
+    "espn6": {"id": "4882", "name": "ESPN 6 / Fox Sports 3 HD (Sur)"},
+    "espn7": {"id": "30329", "name": "ESPN 7 / Extra HD (Sur)"},
+    "espnextra": {"id": "30329", "name": "ESPN Extra HD (Sur/Argentina)"},
     "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
     # Directv Sports (DSPORTS)
@@ -138,19 +139,19 @@ def resolve_channel_input(raw_input):
         if "deportes" in clean or "usa" in clean:
             return "espn-deportes", "ESPN Deportes USA"
         if "extra" in clean:
-            return "espnextra", "ESPN Extra HD"
+            return "espnextra", "ESPN Extra HD (Sur/Argentina)"
         if "7" in clean:
-            return "foxsports3", "Fox Sports 3 (ESPN Extra)"
+            return "espn7", "ESPN 7 / Extra HD (Sur)"
         if "6" in clean:
-            return "espn6", "ESPN 6 HD"
+            return "espn6", "ESPN 6 / Fox Sports 3 HD (Sur)"
         if "5" in clean:
-            return "espn5", "ESPN 5 HD"
+            return "espn5", "ESPN 5 / Fox Sports 2 HD (Sur)"
         if "4" in clean:
-            return "espn4", "ESPN 4 HD"
+            return "espn4", "ESPN 4 HD (Sur)"
         if "3" in clean:
-            return "espn3", "ESPN 3 HD"
+            return "espn3", "ESPN 3 HD (Sur/Argentina)"
         if "2" in clean:
-            return "espn2", "ESPN 2 HD"
+            return "espn2", "ESPN 2 HD (Sur/Argentina)"
         if "1" in clean:
             return "espn", "ESPN 1 HD (Sur/Argentina)"
         return "espn", "ESPN 1 HD (Sur/Argentina)"
@@ -258,6 +259,35 @@ def get_cached_ppv_streams():
         PPV_CHANNELS_CACHE["streams"] = streams
     return streams
 
+TEAM_ALIASES = {
+    "paris saint-germain": ["psg", "paris"],
+    "psg": ["paris saint-germain", "paris"],
+    "atletico madrid": ["atletico", "atleti"],
+    "atlético madrid": ["atletico", "atleti"],
+    "sporting cp": ["sporting"],
+    "feyenoord rotterdam": ["feyenoord"],
+    "vfb stuttgart": ["stuttgart"],
+    "manchester city": ["man city", "mancity"],
+    "manchester united": ["man utd", "manunited"],
+    "internazionale": ["inter"],
+    "inter milan": ["inter"],
+    "bayern munich": ["bayern", "munich", "munchen"],
+    "borussia dortmund": ["dortmund", "bvb"]
+}
+
+def get_team_tokens(team_name):
+    t_clean = team_name.lower().strip()
+    tokens = set()
+    for alias_k, alias_list in TEAM_ALIASES.items():
+        if alias_k in t_clean or t_clean in alias_k:
+            tokens.update(alias_list)
+            tokens.add(alias_k)
+    stopwords = {"club", "deportivo", "athletic", "real", "vfb", "fk", "cp", "cf", "fc"}
+    for word in t_clean.split():
+        if len(word) >= 3 and word not in stopwords:
+            tokens.add(word)
+    return list(tokens) or [t_clean]
+
 def match_team_word(word, text):
     w = word.lower().strip()
     if len(w) < 4:
@@ -275,15 +305,14 @@ def find_live_ppv_stream_for_match(match_title):
         if len(parts) != 2:
             return None
         t1, t2 = parts[0].strip().lower(), parts[1].strip().lower()
-        stopwords = {"club", "deportivo", "athletic", "sporting", "real", "inter", "city", "united"}
-        k1 = [w for w in t1.split() if len(w) > 3 and w not in stopwords] or [t1]
-        k2 = [w for w in t2.split() if len(w) > 3 and w not in stopwords] or [t2]
+        k1 = get_team_tokens(t1)
+        k2 = get_team_tokens(t2)
 
         ppv_streams = get_cached_ppv_streams()
         for s in ppv_streams:
             sname = s.get('name', '').lower()
-            m1 = any(match_team_word(w, sname) for w in k1)
-            m2 = any(match_team_word(w, sname) for w in k2)
+            m1 = any(w in sname for w in k1)
+            m2 = any(w in sname for w in k2)
             if m1 and m2:
                 clean_n = re.sub(r'[^\x00-\x7F]+', ' ', s.get('name', '')).strip()
                 return str(s.get('stream_id')), clean_n
@@ -333,31 +362,27 @@ def smart_match_channel_resolver(title, channels_raw=None):
 
     # 4. Champions League / Europa League / Conference (Multiseñales según partido)
     if "champions" in title_lower or "europa league" in title_lower or "conference" in title_lower:
-        # Equipos españoles secundarios en Champions (Betis, Villarreal, Real Sociedad, Girona, Athletic)
+        # Multiseñales oficiales M+ Liga de Campeones en Español FHD
         if any(team in title_lower for team in ["betis", "villarreal", "villareal", "sociedad", "girona", "athletic", "bilbao"]):
             channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
             channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
-            channels.append({"id": "campeones4", "name": "Movistar Liga de Campeones 4 FHD"})
-            channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-            channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
             channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
-            return channels
-
-        # Equipos principales españoles (Real Madrid, Barcelona, Atlético)
-        if any(team in title_lower for team in ["real madrid", "barcelona", "atletico madrid", "atlético madrid"]):
+        elif any(team in title_lower for team in ["real madrid", "barcelona", "atletico madrid", "atlético madrid"]):
             channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
             channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
-            channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Latino)"})
-            channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-            return channels
+        else:
+            channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
+            channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
+            channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
+            channels.append({"id": "campeones4", "name": "Movistar Liga de Campeones 4 FHD"})
+            channels.append({"id": "campeones5", "name": "Movistar Liga de Campeones 5 FHD"})
 
-        # Resto de partidos simultáneos de Champions League
-        channels.append({"id": "campeones", "name": "Movistar Liga de Campeones 1 FHD"})
-        channels.append({"id": "campeones2", "name": "Movistar Liga de Campeones 2 FHD"})
-        channels.append({"id": "campeones3", "name": "Movistar Liga de Campeones 3 FHD"})
-        channels.append({"id": "campeones4", "name": "Movistar Liga de Campeones 4 FHD"})
-        channels.append({"id": "espn", "name": "ESPN 1 HD"})
-        channels.append({"id": "espn2", "name": "ESPN 2 HD"})
+        # Suite completa ESPN Sur & Fox Sports
+        channels.append({"id": "espn", "name": "ESPN 1 HD (Sur/Argentina)"})
+        channels.append({"id": "espn2", "name": "ESPN 2 HD (Sur/Argentina)"})
+        channels.append({"id": "espn3", "name": "ESPN 3 HD (Sur/Argentina)"})
+        channels.append({"id": "espn4", "name": "ESPN 4 HD (Sur)"})
+        channels.append({"id": "espn5", "name": "ESPN 5 / Fox Sports 2 HD (Sur)"})
         channels.append({"id": "foxsports", "name": "Fox Sports 1 (Argentina)"})
         return channels
 
@@ -981,18 +1006,18 @@ def get_sports_menu_messages(curr_key):
         f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n"
     )
     msg2 = (
-        "🌎 <b>SUITE COMPLETA ESPN LATINOAMÉRICA (24/7 EN VIVO):</b>\n"
-        f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn1 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
+        "🌎 <b>SUITE COMPLETA ESPN SUR (24/7 EN VIVO):</b>\n"
+        f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
+        f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
+        f"• 🚴 <b>ESPN 3 HD (Ciclismo / Tenis):</b> <code>/stream espn3 {curr_key}</code> o <code>/stream espn 3</code>\n"
+        f"• ⚽ <b>ESPN 4 HD (Sur):</b> <code>/stream espn4 {curr_key}</code> o <code>/stream espn 4</code>\n"
+        f"• ⚽ <b>ESPN 5 HD (Sur / Fox 2):</b> <code>/stream espn5 {curr_key}</code> o <code>/stream espn 5</code>\n"
+        f"• ⚽ <b>ESPN 6 HD (Sur / Fox 3):</b> <code>/stream espn6 {curr_key}</code> o <code>/stream espn 6</code>\n"
+        f"• ⚽ <b>ESPN 7 / Extra HD:</b> <code>/stream espn7 {curr_key}</code> o <code>/stream espnextra</code>\n"
         f"• ⚽ <b>ESPN Premium HD:</b> <code>/stream espnpremium {curr_key}</code>\n"
         f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
         "📡 <b>SEÑALES EXCLUSIVAS PPV Y COPAS INTERNACIONALES:</b>\n"
-        "💡 <i>Los partidos de Champions League, Europa League y Libertadores se emiten por las multiseñales de Campeones 1-5, Fox Sports 1-3, ESPN 1-6 o canales PPV directos del servidor. En <code>/partidos</code> tienes el canal verificado de cada juego.</i>\n\n"
+        "💡 <i>Los partidos de Champions League, Europa League y Libertadores se emiten por las multiseñales de Campeones 1-5, Fox Sports 1-3, ESPN 1-5 o canales PPV directos del servidor. En <code>/partidos</code> tienes el canal verificado de cada juego.</i>\n\n"
         "🇨🇴 <b>COLOMBIA, PERÚ & DIRECTV (DSPORTS & WIN):</b>\n"
         f"• ⚽ <b>DIRECTV Sports 1 HD (DSports):</b> <code>/stream dsports {curr_key}</code>\n"
         f"• ⚽ <b>DIRECTV Sports 2 HD (DSports 2):</b> <code>/stream dsports2 {curr_key}</code>\n"
@@ -1045,7 +1070,7 @@ def handle_message(msg):
                 "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
                 "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Directorio de canales deportivos IPTV\n"
                 "• <code>/buscar &lt;nombre&gt;</code> $\\rightarrow$ Buscar entre +27,000 canales IPTV en vivo\n"
-                "• <code>/espn</code> $\\rightarrow$ Ver señales de ESPN (1, 2, 3, 4, Extra, Premium)\n"
+                "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur (1 a 7)\n"
                 "• <code>/stream &lt;CANAL o ID&gt; [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión en directo\n"
                 "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas\n"
                 "• <code>/stop [ID]</code> $\\rightarrow$ Detener transmisión activa\n"
@@ -1072,23 +1097,23 @@ def handle_message(msg):
 
         elif text.startswith("/espn"):
             espn_msg = (
-                "📺 <b>SUITE COMPLETA ESPN LATINOAMÉRICA (24/7 EN VIVO):</b>\n\n"
-                "🇦🇷 <b>SEÑALES ESPN (HD / FHD):</b>\n"
-                f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
-                f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
-                f"• 🚴 <b>ESPN 3 HD (Ciclismo / Vuelta a España / Tenis):</b> <code>/stream espn3 {curr_key}</code> o <code>/stream espn 3</code>\n"
-                f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
-                f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
-                f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
-                f"• ⚽ <b>ESPN Extra HD:</b> <code>/stream espnextra {curr_key}</code>\n"
+                "📺 <b>SUITE COMPLETA ESPN SUR (24/7 EN VIVO):</b>\n\n"
+                "🇦🇷 <b>SEÑALES ESPN SUR (HD / FHD):</b>\n"
+                f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
+                f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
+                f"• 🚴 <b>ESPN 3 HD (Ciclismo / Tenis):</b> <code>/stream espn3 {curr_key}</code> o <code>/stream espn 3</code>\n"
+                f"• ⚽ <b>ESPN 4 HD (Sur):</b> <code>/stream espn4 {curr_key}</code> o <code>/stream espn 4</code>\n"
+                f"• ⚽ <b>ESPN 5 HD (Sur / Fox 2):</b> <code>/stream espn5 {curr_key}</code> o <code>/stream espn 5</code>\n"
+                f"• ⚽ <b>ESPN 6 HD (Sur / Fox 3):</b> <code>/stream espn6 {curr_key}</code> o <code>/stream espn 6</code>\n"
+                f"• ⚽ <b>ESPN 7 / Extra HD:</b> <code>/stream espn7 {curr_key}</code> o <code>/stream espnextra</code>\n"
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
                 f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-                "🦊 <b>SUITE FOX SPORTS (CONMEBOL LIBERTADORES & COPAS):</b>\n"
+                "🦊 <b>SUITE FOX SPORTS (CONMEBOL LIBERTADORES & CHAMPIONS):</b>\n"
                 f"• ⚽ <b>Fox Sports 1 HD:</b> <code>/stream fox1 {curr_key}</code> o <code>/stream fox 1</code>\n"
                 f"• ⚽ <b>Fox Sports 2 HD:</b> <code>/stream fox2 {curr_key}</code> o <code>/stream fox 2</code>\n"
                 f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream fox3 {curr_key}</code> o <code>/stream fox 3</code>\n"
                 f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
-                "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite el partido que buscas.</i>"
+                "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite cada partido de Champions League hoy.</i>"
             )
             send_msg(chat_id, espn_msg)
 
