@@ -150,7 +150,6 @@ TR_CHANNELS = {
 }
 
 # Inyectar señales Disney+ Eventos (1 al 15)
-# Tarjeta Roja usa: disney-1 al disney-7 y disney8 al disney15
 for i in range(1, 16):
     slug_canonical = f"disney-{i}" if i <= 7 else f"disney{i}"
     name_d = f"Disney {i} HD"
@@ -353,24 +352,18 @@ def _fetch_single_tr_slug(clean_slug):
         return None, None, str(e)
 
 def resolve_tarjetaroja_stream(channel_slug):
-    """
-    Extrae la URL m3u8 nativa con fallback elástico de slugs (con guión / sin guión).
-    """
     clean_slug = channel_slug.strip().lower().replace("_", "-")
     
-    # 1. Intentar con el slug original
     url, ref, st = _fetch_single_tr_slug(clean_slug)
     if url:
         return url, ref, st
 
-    # 2. Fallback elástico: si tiene guión y números (ej. "disney-8"), probar sin guión ("disney8")
     if "-" in clean_slug:
         alt_slug = clean_slug.replace("-", "")
         url_alt, ref_alt, st_alt = _fetch_single_tr_slug(alt_slug)
         if url_alt:
             return url_alt, ref_alt, st_alt
 
-    # 3. Fallback inverso: si no tiene guión y termina en número (ej. "disney7"), probar con guión ("disney-7")
     m_num = re.match(r'^([a-zA-Z]+)(\d+)$', clean_slug)
     if m_num:
         alt_slug2 = f"{m_num.group(1)}-{m_num.group(2)}"
@@ -398,18 +391,19 @@ def resolve_stream_source(channel_input):
     return None, None, channel_name, resolved_slug, False
 
 # ==============================================================================
-# MOTOR DE TRANSMISIÓN FFmpeg (ULTRA RESILIENTE / 0% LAG / AV SYNC / LOW CPU)
+# MOTOR DE TRANSMISIÓN DUAL: PASSTHROUGH NATIVO (0% CPU / MÁXIMA FLUIDEZ WEB)
 # ==============================================================================
-def launch_ffmpeg_process(source_url, headers, destination, stream_id):
+def launch_ffmpeg_process(source_url, headers, destination, stream_id, mode="copy"):
     """
-    Lanza el proceso FFmpeg optimizado:
-    - Reconexión infinita a nivel HLS (evita caídas por EOF o retrasos de CDN)
-    - 30 FPS CFR estricto (evita tirones y congelamientos en Telegram)
-    - Límite de 2 threads por proceso (permite abrir múltiples pantallas sin saturar la CPU)
+    Modo 'copy' (Primario): Passthrough directo sin re-codificación.
+    - 0% de uso de CPU
+    - 0% retraso o tirones: la imagen y el audio se envían exactamente como los entrega la web.
+    - Calidad y fluidez 100% idéntica al reproductor del navegador en tarjetaroja.my.
+    
+    Modo 'transcode' (Respaldo): Transcodificación ultraligera por si una señal requiere normalización.
     """
     cmd = [
         "ffmpeg",
-        "-thread_queue_size", "4096",
         "-reconnect", "1",
         "-reconnect_at_eof", "1",
         "-reconnect_streamed", "1",
@@ -420,44 +414,55 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
         "-rw_timeout", "10000000",
         "-fflags", "+genpts+igndts+discardcorrupt",
         "-analyzeduration", "2000000",
-        "-probesize", "2000000",
-        "-live_start_index", "-4"
+        "-probesize", "2000000"
     ]
 
     if headers:
         cmd.extend(["-headers", headers])
 
-    cmd.extend([
-        "-i", source_url,
-        "-vf", "fps=30,scale=1280:720:flags=fast_bilinear",
-        "-fps_mode", "cfr",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-profile:v", "main",
-        "-level", "3.1",
-        "-threads", "2",
-        "-b:v", "1400k",
-        "-maxrate", "1600k",
-        "-bufsize", "2800k",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-sc_threshold", "0",
-        "-pix_fmt", "yuv420p",
-        "-af", "aresample=async=1000:first_pts=0",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "44100",
-        "-ac", "2",
-        "-bsf:a", "aac_adtstoasc",
-        "-avoid_negative_ts", "make_zero",
-        "-flush_packets", "1",
-        "-max_interleave_delta", "0",
-        "-max_muxing_queue_size", "4096",
-        "-flvflags", "no_duration_filesize",
-        "-f", "flv",
-        destination
-    ])
+    cmd.extend(["-i", source_url])
+
+    if mode == "copy":
+        # PASSTHROUGH DIRECTO: FLUIDEZ DE LA WEB SIN PÉRDIDA DE FOTOGRAMAS
+        cmd.extend([
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-bsf:a", "aac_adtstoasc",
+            "-flvflags", "no_duration_filesize",
+            "-f", "flv",
+            destination
+        ])
+    else:
+        # MODO RESPALDO CON CODIFICACIÓN RÁPIDA
+        cmd.extend([
+            "-vf", "fps=30,scale=1280:720:flags=fast_bilinear",
+            "-fps_mode", "cfr",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "zerolatency",
+            "-profile:v", "main",
+            "-threads", "2",
+            "-b:v", "1400k",
+            "-maxrate", "1600k",
+            "-bufsize", "2800k",
+            "-g", "60",
+            "-keyint_min", "60",
+            "-sc_threshold", "0",
+            "-pix_fmt", "yuv420p",
+            "-af", "aresample=async=1000:first_pts=0",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "44100",
+            "-ac", "2",
+            "-bsf:a", "aac_adtstoasc",
+            "-avoid_negative_ts", "make_zero",
+            "-flush_packets", "1",
+            "-max_interleave_delta", "0",
+            "-max_muxing_queue_size", "4096",
+            "-flvflags", "no_duration_filesize",
+            "-f", "flv",
+            destination
+        ])
 
     log_file = f"/tmp/stream_{stream_id}.log" if os.name != 'nt' else f"stream_{stream_id}.log"
     out_f = open(log_file, "w", encoding="utf-8", errors="ignore")
@@ -482,7 +487,6 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
 
     target_slot = None
     with stream_lock:
-        # A. Si el usuario solicitó explícitamente un número de pantalla (ej. "1", "2", "4", "7")
         if requested_slot and str(requested_slot).isdigit() and int(requested_slot) >= 1:
             target_slot = str(int(requested_slot))
             if target_slot in active_streams:
@@ -509,7 +513,6 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
                     pass
                 del active_streams[target_slot]
 
-        # B. Si ya existe una transmisión con exactamente esta misma Stream Key, reutilizamos SU pantalla
         if not target_slot:
             for sid, info in list(active_streams.items()):
                 if info.get("key") == clean_key:
@@ -537,14 +540,12 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
                     del active_streams[sid]
                     break
 
-        # C. Asignar dinámicamente el número de pantalla libre más bajo disponible (1, 2, 3, 4, 5, ...)
         if not target_slot:
             cand = 1
             while str(cand) in active_streams:
                 cand += 1
             target_slot = str(cand)
 
-        # RESERVA INMEDIATA DEL SLOT
         active_streams[target_slot] = {
             "channel_input": clean_channel_input,
             "resolved_slug": resolved_slug,
@@ -553,6 +554,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "process": None,
             "log_handle": None,
             "log_file": None,
+            "mode": "copy",
             "chat_id": chat_id,
             "start_time": time.time(),
             "last_active_time": time.time(),
@@ -562,19 +564,32 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "status": "starting"
         }
 
-    # Lanzar proceso FFmpeg
-    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot)
+    # 1. Intentar primero en Modo Passthrough Directo (Fluidez idéntica a la web)
+    used_mode = "copy"
+    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot, mode="copy")
+
+    time.sleep(2.5)
+    poll_res = proc.poll()
+    if poll_res is not None:
+        # Si falló en modo copy directo, reintentar automáticamente en modo transcode
+        try:
+            out_f.close()
+        except Exception:
+            pass
+        used_mode = "transcode"
+        proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot, mode="transcode")
+        time.sleep(3.0)
+        poll_res = proc.poll()
 
     with stream_lock:
         if target_slot in active_streams and active_streams[target_slot].get("key") == clean_key:
             active_streams[target_slot]["process"] = proc
             active_streams[target_slot]["log_handle"] = out_f
             active_streams[target_slot]["log_file"] = log_file
+            active_streams[target_slot]["mode"] = used_mode
             active_streams[target_slot]["status"] = "running"
             active_streams[target_slot]["last_active_time"] = time.time()
 
-    time.sleep(3.5)
-    poll_res = proc.poll()
     if poll_res is not None:
         try:
             out_f.close()
@@ -600,14 +615,16 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
 
         return False, f"❌ <b>Error al conectar con Telegram RTMP</b> (Código: {poll_res})\n\n<code>{html.escape(logs)}</code>"
 
+    mode_label = "Passthrough Directo (Fluidez Web / 0% Lag)" if used_mode == "copy" else "Transcodificación Ligera"
     active_count = len(active_streams)
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
+        f"⚡ <b>Rendimiento:</b> {mode_label}\n"
         f"🌐 <b>Servidor:</b> Tarjeta Roja Nativo (https://tarjetaroja.my/)\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
         f"📡 <b>Pantallas Activas:</b> {active_count} simultáneas en emisión\n"
-        f"⚙️ <b>Fluidez:</b> 720p @ 30fps CFR Constante (0% Lag / Anti-Caídas)\n\n"
+        f"⚙️ <b>Fluidez:</b> 100% Idéntica a la Web (Sin tirones / 0% CPU)\n\n"
         f"🛑 <i>Para detener esta pantalla:</i> <code>/stop {target_slot}</code>\n"
         f"🛑 <i>Para detener todas las pantallas:</i> <code>/stopall</code>"
     )
@@ -632,11 +649,9 @@ def stop_single_stream(query=None):
 
             target_sid = None
 
-            # 1. Búsqueda exacta por número de pantalla ("1", "2", "3", ...)
             if q_clean in active_streams:
                 target_sid = q_clean
 
-            # 2. Búsqueda por nombre de canal, slug o texto de entrada
             if not target_sid:
                 for sid, info in active_streams.items():
                     c_name = info.get("channel_name", "").lower()
@@ -646,7 +661,6 @@ def stop_single_stream(query=None):
                         target_sid = sid
                         break
 
-            # 3. Búsqueda por Stream Key
             if not target_sid:
                 for sid, info in active_streams.items():
                     if q_raw in info.get("key", "").lower():
@@ -740,12 +754,6 @@ def stop_all_streams():
 # SUPERVISOR INFINITO Y WATCHDOG ANTI-CONGELAMIENTO (CERO CAÍDAS)
 # ==============================================================================
 def supervisor_thread():
-    """
-    Vigila continuamente la salud de cada pantalla:
-    1. Si FFmpeg termina por EOF o error de CDN, lo reconecta INMEDIATAMENTE con URL y token nuevos.
-    2. Watchdog: si el archivo de log no crece en > 20s (proceso congelado), mata el proceso zombi y lo relanza.
-    3. Nunca se rinde: reintenta indefinidamente con backoff inteligente.
-    """
     while True:
         time.sleep(3.5)
         now = time.time()
@@ -758,7 +766,6 @@ def supervisor_thread():
                 proc = info.get("process")
                 log_file = info.get("log_file")
                 
-                # Comprobar actividad en el archivo de log
                 is_stalled = False
                 if log_file and os.path.exists(log_file):
                     try:
@@ -767,7 +774,6 @@ def supervisor_thread():
                             info["last_log_size"] = cur_size
                             info["last_active_time"] = now
                         elif now - info.get("last_active_time", now) > 22:
-                            # Sin nuevos fotogramas durante > 22 segundos: PROCESO CONGELADO
                             is_stalled = True
                     except Exception:
                         pass
@@ -787,12 +793,10 @@ def supervisor_thread():
                         pass
 
                 if not needs_restart:
-                    # Si ha estado emitiendo de forma continua durante > 30s, resetear contador de fallos
                     if now - info.get("start_time", 0) > 30 and info.get("restarts", 0) > 0:
                         info["restarts"] = 0
                     continue
 
-                # Control de reintentos continuos (backoff de 4s a 10s máximo, nunca abandonar)
                 last_restart_attempt = info.get("last_restart_attempt", 0)
                 backoff_time = min(10, 4 + (info.get("restarts", 0) // 3) * 2)
                 if now - last_restart_attempt < backoff_time:
@@ -804,8 +808,8 @@ def supervisor_thread():
 
                 slug = info.get("resolved_slug") or info.get("channel_input")
                 dest = info['key'] if info['key'].startswith(('rtmp://', 'rtmps://')) else f"rtmps://dc4-1.rtmp.t.me/s/{info['key']}"
+                mode = info.get("mode", "copy")
 
-                # Obtener enlace fresco (nuevo token de CDN)
                 src_url, headers_str, ch_name, res_slug, ok = resolve_stream_source(slug)
                 if ok and src_url:
                     try:
@@ -814,7 +818,7 @@ def supervisor_thread():
                     except Exception:
                         pass
 
-                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid)
+                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid, mode=mode)
                     info["process"] = new_proc
                     info["log_handle"] = new_out_f
                     info["log_file"] = new_log_file
@@ -1028,7 +1032,6 @@ def search_tarjetaroja(query, curr_key):
     q = query.strip().lower()
     results = []
 
-    # 1. Buscar en partidos de hoy
     events = fetch_tarjetaroja_schedule()
     match_found = []
     for ev in events:
@@ -1045,7 +1048,6 @@ def search_tarjetaroja(query, curr_key):
                 block += f"• 📺 <i>{html.escape(ch['name'])}:</i> <code>/stream {ch['slug']} {curr_key}</code>\n"
             results.append(block)
 
-    # 2. Buscar en catálogo de canales
     channels_found = []
     seen = set()
     for alias, info in TR_CHANNELS.items():
@@ -1096,7 +1098,8 @@ def handle_message(msg):
 
         if text.startswith("/start") or text.startswith("/ayuda"):
             help_text = (
-                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - ESTABILIDAD TOTAL)</b>\n\n"
+                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - FLUIDEZ WEB)</b>\n\n"
+                "⚡ <b>Rendimiento:</b> Passthrough directo 100% idéntico a https://tarjetaroja.my/ (Sin lag / 0% CPU).\n\n"
                 "📋 <b>COMANDOS PRINCIPALES:</b>\n"
                 "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
                 "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de Tarjeta Roja\n"
@@ -1106,8 +1109,7 @@ def handle_message(msg):
                 "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
                 "• <code>/stop [ID]</code> $\\rightarrow$ Detener pantalla activa (ej. <code>/stop 1</code>)\n"
                 "• <code>/stopall</code> $\\rightarrow$ Detener todas las pantallas activas\n"
-                f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto\n\n"
-                "🛡️ <b>Estabilidad:</b> Watchdog anti-caídas + Reconexión automática infinita + Pantallas ilimitadas."
+                f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto"
             )
             send_msg(chat_id, help_text)
 
@@ -1158,7 +1160,6 @@ def handle_message(msg):
                 requested_slot = tokens[0]
                 tokens = tokens[1:]
 
-            # Detección inteligente de Stream Key RTMP de Telegram
             last_token = tokens[-1].strip().strip("<>").strip('"').strip("'")
             is_stream_key = False
             if last_token.startswith(("rtmp://", "rtmps://")):
@@ -1177,7 +1178,6 @@ def handle_message(msg):
             else:
                 s_key = curr_key
 
-            # Detección de slot al final de tokens si no se detectó al inicio (ej. /stream espn 2)
             if not requested_slot and tokens and len(tokens) > 1 and tokens[-1].isdigit():
                 requested_slot = tokens[-1]
                 tokens = tokens[:-1]
@@ -1202,7 +1202,8 @@ def handle_message(msg):
                     secs = elapsed % 60
                     proc = info.get("process")
                     if proc and proc.poll() is None:
-                        proc_state = "🟢 EMITIENDO (0% LAG)"
+                        mode_str = "⚡ Passthrough Web (0% Lag)" if info.get("mode") == "copy" else "Transcodificación"
+                        proc_state = f"🟢 EMITIENDO ({mode_str})"
                     elif info.get("status") == "reconnecting":
                         proc_state = "🔄 RECONECTANDO CON NUEVO TOKEN"
                     else:
@@ -1265,7 +1266,7 @@ def handle_message(msg):
 
 def main():
     print("=" * 65)
-    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - ESTABILIDAD TOTAL)")
+    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - FLUIDEZ TOTAL)")
     print("=" * 65)
     print("Iniciando polling de Telegram...")
     offset = 0
