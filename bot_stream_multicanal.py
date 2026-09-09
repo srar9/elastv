@@ -38,7 +38,9 @@ IPTV_DIRECT_CHANNELS = {
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
     # Directv Sports (DSPORTS)
     "dsports": {"id": "33933", "name": "DIRECTV Sports 1 HD (DSports)"},
+    "dsports1": {"id": "33933", "name": "DIRECTV Sports 1 HD (DSports)"},
     "dsports2": {"id": "33932", "name": "DIRECTV Sports 2 HD (DSports 2)"},
+    "dsports3": {"id": "33931", "name": "DIRECTV Sports+ HD (DSports+)"},
     "dsportsplus": {"id": "33931", "name": "DIRECTV Sports+ HD (DSports+)"},
     
     # Argentina & Conmebol & Chile
@@ -47,7 +49,12 @@ IPTV_DIRECT_CHANNELS = {
     "tntsportschile": {"id": "97901", "name": "TNT Sports Chile HD"},
     
     # Fox Sports Suite
+    "fox": {"id": "4880", "name": "Fox Sports 1 (Argentina)"},
+    "fox1": {"id": "4880", "name": "Fox Sports 1 (Argentina)"},
+    "fox2": {"id": "4881", "name": "Fox Sports 2 (Argentina)"},
+    "fox3": {"id": "4882", "name": "Fox Sports 3 (Argentina)"},
     "foxsports": {"id": "4880", "name": "Fox Sports 1 (Argentina)"},
+    "foxsports1": {"id": "4880", "name": "Fox Sports 1 (Argentina)"},
     "foxsports2": {"id": "4881", "name": "Fox Sports 2 (Argentina)"},
     "foxsports3": {"id": "4882", "name": "Fox Sports 3 (Argentina)"},
     "foxone": {"id": "4880", "name": "Fox Sports 1 (Argentina)"},
@@ -117,9 +124,12 @@ def clean_arg(val):
 
 def resolve_channel_input(raw_input):
     clean = str(raw_input).strip().lower()
+    clean_no_space = clean.replace(" ", "").replace("_", "").replace("-", "")
     
     if clean in IPTV_DIRECT_CHANNELS:
         return clean, IPTV_DIRECT_CHANNELS[clean]["name"]
+    if clean_no_space in IPTV_DIRECT_CHANNELS:
+        return clean_no_space, IPTV_DIRECT_CHANNELS[clean_no_space]["name"]
 
     # ESPN
     if "espn" in clean:
@@ -141,14 +151,18 @@ def resolve_channel_input(raw_input):
             return "espn3", "ESPN 3 HD"
         if "2" in clean:
             return "espn2", "ESPN 2 HD"
+        if "1" in clean:
+            return "espn", "ESPN 1 HD (Sur/Argentina)"
         return "espn", "ESPN 1 HD (Sur/Argentina)"
 
     # DIRECTV Sports / DSports
     if "dsport" in clean or "directv" in clean or "dtv" in clean:
-        if "plus" in clean or "+" in clean:
+        if "plus" in clean or "+" in clean or "3" in clean:
             return "dsportsplus", "DIRECTV Sports+ HD"
         if "2" in clean:
             return "dsports2", "DIRECTV Sports 2 HD"
+        if "1" in clean:
+            return "dsports", "DIRECTV Sports 1 HD (DSports)"
         return "dsports", "DIRECTV Sports 1 HD (DSports)"
 
     # Fox Sports
@@ -159,6 +173,8 @@ def resolve_channel_input(raw_input):
             return "foxsports3", "Fox Sports 3 (Argentina)"
         if "2" in clean:
             return "foxsports2", "Fox Sports 2 (Argentina)"
+        if "1" in clean:
+            return "foxsports", "Fox Sports 1 (Argentina)"
         return "foxsports", "Fox Sports 1 (Argentina)"
 
     # Argentina
@@ -413,11 +429,11 @@ def smart_match_channel_resolver(title, channels_raw=None):
         channels.append({"id": "daznlaliga", "name": "DAZN 1 FHD"})
         return channels
 
-    # 11. Serie A / Serie B / Copa Italia
-    if any(k in title_lower for k in ["serie a", "italia", "juventus", "inter", "milan", "roma", "napoli", "lazio", "atalanta", "fiorentina"]):
-        channels.append({"id": "espn", "name": "ESPN 1 HD"})
+    # 15. Ciclismo (La Vuelta a España / Giro de Italia / Tour de France)
+    if any(k in title_lower for k in ["ciclismo", "vuelta", "giro", "tour de france", "cycling", "etapa", "brennan"]):
+        channels.append({"id": "espn3", "name": "ESPN 3 HD (Ciclismo / La Vuelta / Giro)"})
         channels.append({"id": "espn2", "name": "ESPN 2 HD"})
-        channels.append({"id": "espn3", "name": "ESPN 3 HD"})
+        channels.append({"id": "espnextra", "name": "ESPN Extra HD"})
         return channels
 
     # 12. Bundesliga (Alemania)
@@ -1058,9 +1074,9 @@ def handle_message(msg):
             espn_msg = (
                 "📺 <b>SUITE COMPLETA ESPN LATINOAMÉRICA (24/7 EN VIVO):</b>\n\n"
                 "🇦🇷 <b>SEÑALES ESPN (HD / FHD):</b>\n"
-                f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn1 {curr_key}</code>\n"
-                f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code>\n"
-                f"• ⚽ <b>ESPN 3 HD:</b> <code>/stream espn3 {curr_key}</code>\n"
+                f"• ⚽ <b>ESPN 1 HD:</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
+                f"• ⚽ <b>ESPN 2 HD:</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
+                f"• 🚴 <b>ESPN 3 HD (Ciclismo / Vuelta a España / Tenis):</b> <code>/stream espn3 {curr_key}</code> o <code>/stream espn 3</code>\n"
                 f"• ⚽ <b>ESPN 4 HD:</b> <code>/stream espn4 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 5 HD:</b> <code>/stream espn5 {curr_key}</code>\n"
                 f"• ⚽ <b>ESPN 6 HD:</b> <code>/stream espn6 {curr_key}</code>\n"
@@ -1068,9 +1084,9 @@ def handle_message(msg):
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
                 f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
                 "🦊 <b>SUITE FOX SPORTS (CONMEBOL LIBERTADORES & COPAS):</b>\n"
-                f"• ⚽ <b>Fox Sports 1 HD:</b> <code>/stream foxsports {curr_key}</code>\n"
-                f"• ⚽ <b>Fox Sports 2 HD:</b> <code>/stream foxsports2 {curr_key}</code>\n"
-                f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream foxsports3 {curr_key}</code>\n"
+                f"• ⚽ <b>Fox Sports 1 HD:</b> <code>/stream fox1 {curr_key}</code> o <code>/stream fox 1</code>\n"
+                f"• ⚽ <b>Fox Sports 2 HD:</b> <code>/stream fox2 {curr_key}</code> o <code>/stream fox 2</code>\n"
+                f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream fox3 {curr_key}</code> o <code>/stream fox 3</code>\n"
                 f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
                 "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite el partido que buscas.</i>"
             )
@@ -1083,13 +1099,30 @@ def handle_message(msg):
                 send_msg(chat_id, m)
 
         elif text.startswith("/stream"):
-            parts = text.split(maxsplit=2)
-            if len(parts) < 2:
-                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL o ID&gt; [STREAM_KEY]</code>\nEjemplo: <code>/stream dsports</code> o <code>/stream espn2</code>")
+            tokens = text.split()[1:]
+            if not tokens:
+                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL o ID&gt; [STREAM_KEY]</code>\nEjemplo: <code>/stream espn 3</code> o <code>/stream fox 2</code> o <code>/stream dsports</code>")
                 return
 
-            ch_input = parts[1].strip()
-            s_key = parts[2].strip() if len(parts) >= 3 else curr_key
+            # Detección inteligente de Stream Key RTMP de Telegram
+            last_token = tokens[-1].strip().strip("<>").strip('"').strip("'")
+            is_stream_key = False
+            if last_token.startswith(("rtmp://", "rtmps://")):
+                is_stream_key = True
+            elif ":" in last_token and len(last_token) >= 12:
+                is_stream_key = True
+            elif len(last_token) >= 20 and not any(kw in last_token.lower() for kw in ["espn", "fox", "sport", "deporte", "campeon", "star", "disney", "movistar"]):
+                is_stream_key = True
+
+            if is_stream_key and len(tokens) > 1:
+                s_key = last_token
+                ch_input = " ".join(tokens[:-1]).strip()
+            elif is_stream_key and len(tokens) == 1:
+                s_key = last_token
+                ch_input = "espn"
+            else:
+                s_key = curr_key
+                ch_input = " ".join(tokens).strip()
 
             send_msg(chat_id, f"🔄 <b>Conectando señal IPTV para {ch_input}...</b>")
             ok, response_msg = start_single_stream(ch_input, s_key, chat_id)
