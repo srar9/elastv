@@ -17,7 +17,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8988332685:AAF-6ulB_i
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 CONFIG_FILE = "stream_config.json"
 
-MAX_SIMULTANEOUS_STREAMS = 3
 ADMIN_USER_ID = None  # Acceso libre o ID numérico de Telegram
 
 HEADERS_BASE = {
@@ -45,16 +44,16 @@ def save_config(cfg):
 CONFIG = load_config()
 
 # ==============================================================================
-# ESTADO GLOBAL DE TRANSMISIONES MULTI-PANTALLA (PANTALLAS #1, #2, #3)
+# ESTADO GLOBAL DE TRANSMISIONES MULTI-PANTALLA (ILIMITADAS #1, #2, #3, ...)
 # ==============================================================================
 active_streams = {}
 stream_lock = threading.Lock()
 
 # ==============================================================================
-# DIRECTORIO Y MAPEO DE CANALES DE TARJETA ROJA (https://tarjetaroja.my/)
+# DIRECTORIO INTEGRAL DE 63 CANALES DE TARJETA ROJA (https://tarjetaroja.my/)
 # ==============================================================================
 TR_CHANNELS = {
-    # ESPN Latinoamérica (Señales Sur / Argentina 100% Verificadas)
+    # ESPN Suite
     "espn": {"slug": "espn", "name": "ESPN 1 HD (Sur/Argentina)", "cat": "espn"},
     "espn1": {"slug": "espn", "name": "ESPN 1 HD (Sur/Argentina)", "cat": "espn"},
     "espn2": {"slug": "espn2", "name": "ESPN 2 HD (Sur/Argentina)", "cat": "espn"},
@@ -69,51 +68,71 @@ TR_CHANNELS = {
     "espndeportes": {"slug": "espn-deportes", "name": "ESPN Deportes USA", "cat": "espn"},
 
     # Fox Sports Suite
-    "fox1": {"slug": "fox1ar", "name": "Fox Sports 1 (Argentina)", "cat": "fox"},
-    "fox1ar": {"slug": "fox1ar", "name": "Fox Sports 1 (Argentina)", "cat": "fox"},
-    "fox": {"slug": "fox1ar", "name": "Fox Sports 1 (Argentina)", "cat": "fox"},
-    "foxsports": {"slug": "fox1ar", "name": "Fox Sports 1 (Argentina)", "cat": "fox"},
-    "foxsports1": {"slug": "fox1ar", "name": "Fox Sports 1 (Argentina)", "cat": "fox"},
-    "fox2": {"slug": "fox2ar", "name": "Fox Sports 2 (Argentina)", "cat": "fox"},
-    "fox2ar": {"slug": "fox2ar", "name": "Fox Sports 2 (Argentina)", "cat": "fox"},
-    "foxsports2": {"slug": "fox2ar", "name": "Fox Sports 2 (Argentina)", "cat": "fox"},
-    "fox3": {"slug": "foxone3", "name": "Fox Sports 3 HD", "cat": "fox"},
-    "fox3ar": {"slug": "foxone3", "name": "Fox Sports 3 HD", "cat": "fox"},
-    "foxsports3": {"slug": "foxone3", "name": "Fox Sports 3 HD", "cat": "fox"},
-    "foxone": {"slug": "foxone", "name": "Fox Sports 1 MX/HD", "cat": "fox"},
-    "foxone2": {"slug": "foxone2", "name": "Fox Sports 2 MX/HD", "cat": "fox"},
-    "foxone3": {"slug": "foxone3", "name": "Fox Sports 3 MX/HD", "cat": "fox"},
+    "fox1": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "fox1ar": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "fox": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "foxsports": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "foxsports1": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "fox2": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
+    "fox2ar": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
+    "foxsports2": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
+    "fox3": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
+    "fox3ar": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
+    "foxsports3": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
+    "foxone": {"slug": "foxone", "name": "Fox ONE MX", "cat": "fox"},
+    "foxone2": {"slug": "foxone2", "name": "FOX One 2", "cat": "fox"},
+    "foxone3": {"slug": "foxone3", "name": "FOX One 3", "cat": "fox"},
     "foxpremium": {"slug": "foxpremium", "name": "Fox Sports Premium HD", "cat": "fox"},
     "fox-deportes": {"slug": "fox_deportes_usa", "name": "Fox Deportes USA", "cat": "fox"},
+    "foxdeportes": {"slug": "fox_deportes_usa", "name": "Fox Deportes USA", "cat": "fox"},
+
+    # MAX Suite (Señales MAX 1, MAX 2, MAX 3)
+    "max1": {"slug": "max1", "name": "MAX 1 HD", "cat": "max"},
+    "max2": {"slug": "max2", "name": "MAX 2 HD", "cat": "max"},
+    "max3": {"slug": "max3", "name": "MAX 3 HD", "cat": "max"},
 
     # DIRECTV Sports (DSPORTS)
-    "dsports": {"slug": "dsports", "name": "DIRECTV Sports 1 HD (DSports)", "cat": "dsports"},
-    "dsports1": {"slug": "dsports", "name": "DIRECTV Sports 1 HD (DSports)", "cat": "dsports"},
-    "dsports2": {"slug": "dsports2", "name": "DIRECTV Sports 2 HD (DSports 2)", "cat": "dsports"},
-    "dsportsplus": {"slug": "dsportsplus", "name": "DIRECTV Sports+ HD", "cat": "dsports"},
-    "dsports3": {"slug": "dsportsplus", "name": "DIRECTV Sports+ HD", "cat": "dsports"},
+    "dsports": {"slug": "dsports", "name": "DSports 1 HD", "cat": "dsports"},
+    "dsports1": {"slug": "dsports", "name": "DSports 1 HD", "cat": "dsports"},
+    "dsports2": {"slug": "dsports2", "name": "DSports 2 HD", "cat": "dsports"},
+    "dsportsplus": {"slug": "dsportsplus", "name": "DSports+ HD", "cat": "dsports"},
+    "dsports3": {"slug": "dsportsplus", "name": "DSports+ HD", "cat": "dsports"},
 
-    # Argentina & Chile
-    "tyc": {"slug": "tycsports", "name": "TyC Sports HD (Argentina)", "cat": "latam"},
-    "tycsports": {"slug": "tycsports", "name": "TyC Sports HD (Argentina)", "cat": "latam"},
-    "tntsports": {"slug": "tntsports", "name": "TNT Sports HD (Argentina)", "cat": "latam"},
-    "tntsportschile": {"slug": "tntsportschile", "name": "TNT Sports Chile HD", "cat": "latam"},
+    # Fanatiz Suite (Señales Fanatiz 1 al 5)
+    "fanatiz": {"slug": "fanatiz", "name": "Fanatiz 1 HD", "cat": "fanatiz"},
+    "fanatiz1": {"slug": "fanatiz", "name": "Fanatiz 1 HD", "cat": "fanatiz"},
+    "fanatiz-2": {"slug": "fanatiz-2", "name": "Fanatiz 2 HD", "cat": "fanatiz"},
+    "fanatiz2": {"slug": "fanatiz-2", "name": "Fanatiz 2 HD", "cat": "fanatiz"},
+    "fanatiz-3": {"slug": "fanatiz-3", "name": "Fanatiz 3 HD", "cat": "fanatiz"},
+    "fanatiz3": {"slug": "fanatiz-3", "name": "Fanatiz 3 HD", "cat": "fanatiz"},
+    "fanatiz-4": {"slug": "fanatiz-4", "name": "Fanatiz 4 HD", "cat": "fanatiz"},
+    "fanatiz4": {"slug": "fanatiz-4", "name": "Fanatiz 4 HD", "cat": "fanatiz"},
+    "fanatiz-5": {"slug": "fanatiz-5", "name": "Fanatiz 5 HD", "cat": "fanatiz"},
+    "fanatiz5": {"slug": "fanatiz-5", "name": "Fanatiz 5 HD", "cat": "fanatiz"},
 
-    # Colombia & Perú
-    "winplus": {"slug": "winplus", "name": "Win Sports+ HD (Colombia)", "cat": "latam"},
-    "winsports": {"slug": "winsports", "name": "Win Sports Colombia HD", "cat": "latam"},
-    "liga1max": {"slug": "liga1max", "name": "Liga 1 MAX (Perú)", "cat": "latam"},
-    "golperu": {"slug": "golperu", "name": "Gol Perú HD", "cat": "latam"},
-
-    # ViX+ / TUDN Deportes (México & USA)
+    # ViX+ / TUDN / Universo
     "vix1": {"slug": "vix1", "name": "ViX+ TUDN Deportes 1 HD", "cat": "vix"},
     "vix2": {"slug": "vix2", "name": "ViX+ Zona TUDN HD", "cat": "vix"},
     "vix3": {"slug": "vix3", "name": "ViX+ Deportes 3 HD", "cat": "vix"},
     "vix4": {"slug": "vix4", "name": "ViX+ Deportes 4 HD", "cat": "vix"},
     "vix5": {"slug": "vix5", "name": "ViX+ Deportes 5 HD", "cat": "vix"},
-    "tudn": {"slug": "tudn", "name": "TUDN México HD", "cat": "vix"},
+    "tudn": {"slug": "tudn", "name": "TUDN MX HD", "cat": "vix"},
     "tudnusa": {"slug": "tudn_usa", "name": "TUDN USA HD", "cat": "vix"},
     "universo": {"slug": "universo_usa", "name": "Universo USA HD", "cat": "vix"},
+    "universo_usa": {"slug": "universo_usa", "name": "Universo USA HD", "cat": "vix"},
+
+    # Argentina, Colombia, Brasil, Perú
+    "tyc": {"slug": "tycsports", "name": "TyC Sports HD", "cat": "latam"},
+    "tycsports": {"slug": "tycsports", "name": "TyC Sports HD", "cat": "latam"},
+    "tntsports": {"slug": "tntsports", "name": "TNT Sports HD", "cat": "latam"},
+    "tntsportschile": {"slug": "tntsportschile", "name": "TNT Sports Chile HD", "cat": "latam"},
+    "winplus": {"slug": "winplus", "name": "Win Sports + HD", "cat": "latam"},
+    "winsports": {"slug": "winsports", "name": "Win Sports HD", "cat": "latam"},
+    "sporttvbr1": {"slug": "sporttvbr1", "name": "Sport TV 1 BR", "cat": "latam"},
+    "sporttv": {"slug": "sporttvbr1", "name": "Sport TV 1 BR", "cat": "latam"},
+    "liga1max": {"slug": "liga1max", "name": "Liga 1 MAX (Perú)", "cat": "latam"},
+    "golperu": {"slug": "golperu", "name": "Gol Perú HD", "cat": "latam"},
+    "evento1": {"slug": "evento-1", "name": "Evento 1 HD", "cat": "latam"},
 
     # España / Champions / Premier
     "movistarlaliga": {"slug": "movistarlaliga", "name": "Movistar LaLiga HD", "cat": "europe"},
@@ -130,17 +149,18 @@ TR_CHANNELS = {
     "usanetwork": {"slug": "usanetwork", "name": "USA Network HD", "cat": "europe"}
 }
 
-# Inyectar señales Disney+ Eventos (disney-1 a disney-15)
+# Inyectar señales Disney+ Eventos (1 al 15)
+# Tarjeta Roja usa: disney-1 al disney-7 y disney8 al disney15
 for i in range(1, 16):
-    slug_d = f"disney-{i}"
-    name_d = f"Disney+ Evento {i} HD"
-    TR_CHANNELS[slug_d] = {"slug": slug_d, "name": name_d, "cat": "disney"}
-    TR_CHANNELS[f"disney{i}"] = {"slug": slug_d, "name": name_d, "cat": "disney"}
+    slug_canonical = f"disney-{i}" if i <= 7 else f"disney{i}"
+    name_d = f"Disney {i} HD"
+    TR_CHANNELS[f"disney-{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
+    TR_CHANNELS[f"disney{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
 
 # Inyectar señales Apple TV MLS (appletv1 a appletv15)
 for i in range(1, 16):
     slug_a = f"appletv{i}"
-    name_a = f"Apple TV MLS {i} HD"
+    name_a = f"Apple TV {i} HD"
     TR_CHANNELS[slug_a] = {"slug": slug_a, "name": name_a, "cat": "appletv"}
 
 def clean_arg(val):
@@ -159,11 +179,31 @@ def resolve_channel_input(raw_input):
         ch = TR_CHANNELS[clean_no_space]
         return ch["slug"], ch["name"]
 
-    # Disney+ regex (ej. "disney 2", "disney-2", "disney2")
+    # MAX regex (ej. "max 1", "max 2", "max 3")
+    m_max = re.search(r'max.*?(\d+)', clean)
+    if m_max:
+        num = m_max.group(1)
+        return f"max{num}", f"MAX {num} HD"
+
+    # Fanatiz regex (ej. "fanatiz 2", "fanatiz-4")
+    m_fan = re.search(r'fanatiz.*?(\d+)', clean)
+    if m_fan:
+        num = m_fan.group(1)
+        slug_f = "fanatiz" if num == "1" else f"fanatiz-{num}"
+        return slug_f, f"Fanatiz {num} HD"
+
+    # Disney+ regex (ej. "disney 2", "disney-7", "disney 10")
     m_disney = re.search(r'disney.*?(\d+)', clean)
     if m_disney:
-        num = m_disney.group(1)
-        return f"disney-{num}", f"Disney+ Evento {num} HD"
+        num = int(m_disney.group(1))
+        slug_d = f"disney-{num}" if num <= 7 else f"disney{num}"
+        return slug_d, f"Disney {num} HD"
+
+    # Apple TV regex
+    m_apple = re.search(r'apple.*?(\d+)', clean)
+    if m_apple:
+        num = m_apple.group(1)
+        return f"appletv{num}", f"Apple TV {num} HD"
 
     # ESPN regex
     if "espn" in clean:
@@ -171,12 +211,8 @@ def resolve_channel_input(raw_input):
             return "espnpremium", "ESPN Premium HD (Argentina)"
         if "deportes" in clean or "usa" in clean:
             return "espn-deportes", "ESPN Deportes USA"
-        if "extra" in clean:
+        if "extra" in clean or "7" in clean or "6" in clean:
             return "foxone3", "Fox Sports 3 / ESPN Extra HD"
-        if "7" in clean:
-            return "foxone3", "Fox Sports 3 / ESPN 7 HD"
-        if "6" in clean:
-            return "foxone3", "Fox Sports 3 / ESPN 6 HD"
         if "5" in clean:
             return "espn5", "ESPN 5 HD (Sur)"
         if "4" in clean:
@@ -191,21 +227,25 @@ def resolve_channel_input(raw_input):
     if "fox" in clean:
         if "prem" in clean:
             return "foxpremium", "Fox Sports Premium HD"
-        if "3" in clean:
-            return "foxone3", "Fox Sports 3 HD"
+        if "one 3" in clean or "one3" in clean or "3" in clean:
+            return "foxone3", "FOX One 3 / Fox Sports 3 HD"
+        if "one 2" in clean or "one2" in clean:
+            return "foxone2", "FOX One 2"
+        if "one" in clean:
+            return "foxone", "Fox ONE MX"
         if "2" in clean:
-            return "fox2ar", "Fox Sports 2 (Argentina)"
+            return "fox2ar", "Fox Sports 2 Argentina"
         if "1" in clean:
-            return "fox1ar", "Fox Sports 1 (Argentina)"
-        return "fox1ar", "Fox Sports 1 (Argentina)"
+            return "fox1ar", "Fox Sports 1 Argentina"
+        return "fox1ar", "Fox Sports 1 Argentina"
 
     # DIRECTV Sports / DSports
     if "dsport" in clean or "directv" in clean or "dtv" in clean:
         if "plus" in clean or "+" in clean or "3" in clean:
-            return "dsportsplus", "DIRECTV Sports+ HD"
+            return "dsportsplus", "DSports+ HD"
         if "2" in clean:
-            return "dsports2", "DIRECTV Sports 2 HD"
-        return "dsports", "DIRECTV Sports 1 HD (DSports)"
+            return "dsports2", "DSports 2 HD"
+        return "dsports", "DSports 1 HD"
 
     # ViX regex
     if "vix" in clean:
@@ -216,25 +256,24 @@ def resolve_channel_input(raw_input):
 
     # TyC Sports
     if "tyc" in clean:
-        return "tycsports", "TyC Sports HD (Argentina)"
+        return "tycsports", "TyC Sports HD"
 
     # Win Sports
     if "win" in clean:
         if "+" in clean or "plus" in clean:
-            return "winplus", "Win Sports+ HD (Colombia)"
-        return "winsports", "Win Sports Colombia HD"
+            return "winplus", "Win Sports + HD"
+        return "winsports", "Win Sports HD"
 
-    # Si es un slug directo de Tarjeta Roja (ej. "liverpool-vs-atletico" o "disney-2")
+    # Sport TV BR
+    if "sport" in clean and "br" in clean:
+        return "sporttvbr1", "Sport TV 1 BR"
+
     return clean.replace(" ", "-"), f"Canal Tarjeta Roja [{clean}]"
 
 # ==============================================================================
-# RESOLVEDOR UNIVERSAL DE STREAM DE TARJETA ROJA (100% NATIVO)
+# RESOLVEDOR UNIVERSAL DE STREAM DE TARJETA ROJA (100% NATIVO Y ELÁSTICO)
 # ==============================================================================
 def decode_streamxhd(html_content):
-    """
-    Decodifica el reproductor ofuscado de streamxhd.com (ViX, Disney+, Fox 3, Apple TV)
-    ordenando la matriz de caracteres y restando el desplazamiento dinámico de enteros.
-    """
     try:
         m_sort = re.search(r'([A-Za-z0-9_]+)\.sort\(\(a,b\)\s*=>\s*a\[0\]\s*-\s*b\[0\]\)', html_content)
         if not m_sort:
@@ -268,21 +307,16 @@ def decode_streamxhd(html_content):
     except Exception:
         return None
 
-def resolve_tarjetaroja_stream(channel_slug):
-    """
-    Extrae la URL m3u8 nativa y los headers requeridos para cualquier canal o evento de tarjetaroja.my
-    """
-    clean_slug = channel_slug.strip().lower().replace("_", "-")
+def _fetch_single_tr_slug(clean_slug):
     page_url = f"https://tarjetaroja.my/stream/{clean_slug}"
-
     try:
         r_page = requests.get(page_url, headers=HEADERS_BASE, timeout=8)
         if r_page.status_code != 200:
-            return None, None, f"Tarjeta Roja retornó HTTP {r_page.status_code}"
+            return None, None, f"HTTP {r_page.status_code}"
 
         m_if = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', r_page.text, re.IGNORECASE)
         if not m_if:
-            return None, None, "No se encontró el reproductor (iframe) en Tarjeta Roja"
+            return None, None, "No iframe"
 
         iframe_url = m_if.group(1)
         if iframe_url.startswith("//"):
@@ -296,40 +330,63 @@ def resolve_tarjetaroja_stream(channel_slug):
 
         r_if = requests.get(iframe_url, headers=h_if, timeout=8)
         if r_if.status_code != 200:
-            return None, None, f"Reproductor retornó HTTP {r_if.status_code}"
+            return None, None, f"Iframe HTTP {r_if.status_code}"
 
-        # Método 1: Reproductor streamtp-golden1 (ESPN 1-5, Fox 1-2, DSports, TyC, Win)
+        # 1. streamtp-golden1 directo
         m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_if.text)
         if m_play:
             stream_url = m_play.group(1).replace(r'\/', '/')
             return stream_url, iframe_url, "OK (streamtp directo)"
 
-        # Método 2: Reproductor streamxhd desofuscado (ViX 1-5, Disney+ 1-15, Fox 3, Apple TV)
+        # 2. streamxhd desofuscado
         dec_url = decode_streamxhd(r_if.text)
         if dec_url:
             return dec_url, iframe_url, "OK (streamxhd decodificado)"
 
-        # Método 3: Atributo source / file
+        # 3. Source / file
         m_src = re.search(r'(?:source|file)\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', r_if.text)
         if m_src:
             return m_src.group(1).replace(r'\/', '/'), iframe_url, "OK (source/file directo)"
 
-        return None, None, "No se detectó enlace m3u8 en la señal"
+        return None, None, "No stream url"
     except Exception as e:
         return None, None, str(e)
 
+def resolve_tarjetaroja_stream(channel_slug):
+    """
+    Extrae la URL m3u8 nativa con fallback elástico de slugs (con guión / sin guión).
+    """
+    clean_slug = channel_slug.strip().lower().replace("_", "-")
+    
+    # 1. Intentar con el slug original
+    url, ref, st = _fetch_single_tr_slug(clean_slug)
+    if url:
+        return url, ref, st
+
+    # 2. Fallback elástico: si tiene guión y números (ej. "disney-8"), probar sin guión ("disney8")
+    if "-" in clean_slug:
+        alt_slug = clean_slug.replace("-", "")
+        url_alt, ref_alt, st_alt = _fetch_single_tr_slug(alt_slug)
+        if url_alt:
+            return url_alt, ref_alt, st_alt
+
+    # 3. Fallback inverso: si no tiene guión y termina en número (ej. "disney7"), probar con guión ("disney-7")
+    m_num = re.match(r'^([a-zA-Z]+)(\d+)$', clean_slug)
+    if m_num:
+        alt_slug2 = f"{m_num.group(1)}-{m_num.group(2)}"
+        url_alt2, ref_alt2, st_alt2 = _fetch_single_tr_slug(alt_slug2)
+        if url_alt2:
+            return url_alt2, ref_alt2, st_alt2
+
+    return None, None, st
+
 def resolve_stream_source(channel_input):
-    """
-    Resuelve la fuente de transmisión 100% nativa con Tarjeta Roja.
-    """
     clean_in = clean_arg(channel_input)
 
-    # 1. Enlace directo http / https provisto por el usuario
     if clean_in.startswith("http://") or clean_in.startswith("https://"):
         headers_str = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
         return clean_in, headers_str, "Canal Personalizado", clean_in, True
 
-    # 2. Canales pre-mapeados o slugs de Tarjeta Roja
     resolved_slug, channel_name = resolve_channel_input(clean_in)
 
     stream_url, iframe_ref, status_info = resolve_tarjetaroja_stream(resolved_slug)
@@ -341,21 +398,30 @@ def resolve_stream_source(channel_input):
     return None, None, channel_name, resolved_slug, False
 
 # ==============================================================================
-# MOTOR DE TRANSMISIÓN FFmpeg (OPTIMIZADO PARA HLS / 0% LAG / AV SYNC)
+# MOTOR DE TRANSMISIÓN FFmpeg (ULTRA RESILIENTE / 0% LAG / AV SYNC / LOW CPU)
 # ==============================================================================
 def launch_ffmpeg_process(source_url, headers, destination, stream_id):
+    """
+    Lanza el proceso FFmpeg optimizado:
+    - Reconexión infinita a nivel HLS (evita caídas por EOF o retrasos de CDN)
+    - 30 FPS CFR estricto (evita tirones y congelamientos en Telegram)
+    - Límite de 2 threads por proceso (permite abrir múltiples pantallas sin saturar la CPU)
+    """
     cmd = [
         "ffmpeg",
-        "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "-thread_queue_size", "8192",
+        "-thread_queue_size", "4096",
         "-reconnect", "1",
+        "-reconnect_at_eof", "1",
         "-reconnect_streamed", "1",
         "-reconnect_delay_max", "2",
-        "-rw_timeout", "15000000",
+        "-seg_max_retry", "50",
+        "-max_reload", "1000",
+        "-http_persistent", "1",
+        "-rw_timeout", "10000000",
         "-fflags", "+genpts+igndts+discardcorrupt",
         "-analyzeduration", "2000000",
         "-probesize", "2000000",
-        "-live_start_index", "-3"
+        "-live_start_index", "-4"
     ]
 
     if headers:
@@ -363,30 +429,31 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
 
     cmd.extend([
         "-i", source_url,
-        "-vf", "fps=fps=30:round=near,setpts=N/(30*TB),scale=1280:720:flags=fast_bilinear",
+        "-vf", "fps=30,scale=1280:720:flags=fast_bilinear",
+        "-fps_mode", "cfr",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
         "-profile:v", "main",
         "-level", "3.1",
-        "-threads", "0",
-        "-b:v", "1500k",
-        "-maxrate", "1800k",
-        "-bufsize", "3000k",
+        "-threads", "2",
+        "-b:v", "1400k",
+        "-maxrate", "1600k",
+        "-bufsize", "2800k",
         "-g", "60",
         "-keyint_min", "60",
         "-sc_threshold", "0",
         "-pix_fmt", "yuv420p",
-        "-af", "aresample=48000:async=1000:first_pts=0",
+        "-af", "aresample=async=1000:first_pts=0",
         "-c:a", "aac",
         "-b:a", "128k",
-        "-ar", "48000",
+        "-ar", "44100",
         "-ac", "2",
         "-bsf:a", "aac_adtstoasc",
         "-avoid_negative_ts", "make_zero",
         "-flush_packets", "1",
         "-max_interleave_delta", "0",
-        "-max_muxing_queue_size", "8192",
+        "-max_muxing_queue_size", "4096",
         "-flvflags", "no_duration_filesize",
         "-f", "flv",
         destination
@@ -398,7 +465,7 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
     return proc, out_f, log_file
 
 # ==============================================================================
-# GESTIÓN MULTI-PANTALLA: START, STOP Y STOPALL DETERMINISTAS
+# GESTIÓN MULTI-PANTALLA ILIMITADA (1, 2, 3, 4, 5, ...)
 # ==============================================================================
 def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None):
     clean_channel_input = clean_arg(channel_input)
@@ -415,9 +482,9 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
 
     target_slot = None
     with stream_lock:
-        # A. Si el usuario solicitó explícitamente un número de pantalla (ej. "1", "2", "3")
-        if requested_slot and str(requested_slot) in ["1", "2", "3"]:
-            target_slot = str(requested_slot)
+        # A. Si el usuario solicitó explícitamente un número de pantalla (ej. "1", "2", "4", "7")
+        if requested_slot and str(requested_slot).isdigit() and int(requested_slot) >= 1:
+            target_slot = str(int(requested_slot))
             if target_slot in active_streams:
                 old_info = active_streams[target_slot]
                 old_info["auto_restart"] = False
@@ -470,40 +537,12 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
                     del active_streams[sid]
                     break
 
-        # C. Si se alcanzó el límite de 3 conexiones simultáneas, liberar la más antigua
-        if not target_slot and len(active_streams) >= MAX_SIMULTANEOUS_STREAMS:
-            oldest_sid = sorted(active_streams.keys(), key=lambda x: active_streams[x].get("start_time", 0))[0]
-            old_info = active_streams[oldest_sid]
-            old_info["auto_restart"] = False
-            old_proc = old_info.get("process")
-            if old_proc:
-                try:
-                    old_proc.terminate()
-                    try:
-                        old_proc.wait(timeout=1.5)
-                    except subprocess.TimeoutExpired:
-                        old_proc.kill()
-                        old_proc.wait(timeout=1)
-                except Exception:
-                    try:
-                        old_proc.kill()
-                    except Exception:
-                        pass
-            try:
-                if old_info.get("log_handle"):
-                    old_info["log_handle"].close()
-            except Exception:
-                pass
-            del active_streams[oldest_sid]
-
-        # D. Asignar el número de pantalla libre más bajo (1, 2 o 3)
+        # C. Asignar dinámicamente el número de pantalla libre más bajo disponible (1, 2, 3, 4, 5, ...)
         if not target_slot:
-            for s in ["1", "2", "3"]:
-                if s not in active_streams:
-                    target_slot = s
-                    break
-            if not target_slot:
-                target_slot = "1"
+            cand = 1
+            while str(cand) in active_streams:
+                cand += 1
+            target_slot = str(cand)
 
         # RESERVA INMEDIATA DEL SLOT
         active_streams[target_slot] = {
@@ -516,6 +555,8 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "log_file": None,
             "chat_id": chat_id,
             "start_time": time.time(),
+            "last_active_time": time.time(),
+            "last_log_size": 0,
             "auto_restart": True,
             "restarts": 0,
             "status": "starting"
@@ -530,6 +571,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             active_streams[target_slot]["log_handle"] = out_f
             active_streams[target_slot]["log_file"] = log_file
             active_streams[target_slot]["status"] = "running"
+            active_streams[target_slot]["last_active_time"] = time.time()
 
     time.sleep(3.5)
     poll_res = proc.poll()
@@ -564,8 +606,8 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
         f"🌐 <b>Servidor:</b> Tarjeta Roja Nativo (https://tarjetaroja.my/)\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
-        f"📡 <b>Pantallas Ocupadas:</b> {active_count}/{MAX_SIMULTANEOUS_STREAMS} simultáneas\n"
-        f"⚙️ <b>Audio/Video:</b> 720p @ 30fps (Sincronización AV Bloqueada)\n\n"
+        f"📡 <b>Pantallas Activas:</b> {active_count} simultáneas en emisión\n"
+        f"⚙️ <b>Fluidez:</b> 720p @ 30fps CFR Constante (0% Lag / Anti-Caídas)\n\n"
         f"🛑 <i>Para detener esta pantalla:</i> <code>/stop {target_slot}</code>\n"
         f"🛑 <i>Para detener todas las pantallas:</i> <code>/stopall</code>"
     )
@@ -580,7 +622,7 @@ def stop_single_stream(query=None):
                 target_sid = list(active_streams.keys())[0]
             else:
                 msg_choices = f"⚠️ <b>Tienes {len(active_streams)} transmisiones activas. ¿Cuál deseas detener?</b>\n\n"
-                for s, inf in sorted(active_streams.items()):
+                for s, inf in sorted(active_streams.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 999):
                     msg_choices += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])}\n  👉 Detener: <code>/stop {s}</code>\n\n"
                 msg_choices += "🛑 <b>Para detener todas a la vez:</b> <code>/stopall</code>"
                 return False, msg_choices
@@ -590,7 +632,7 @@ def stop_single_stream(query=None):
 
             target_sid = None
 
-            # 1. Búsqueda exacta por número de pantalla ("1", "2", "3")
+            # 1. Búsqueda exacta por número de pantalla ("1", "2", "3", ...)
             if q_clean in active_streams:
                 target_sid = q_clean
 
@@ -614,7 +656,7 @@ def stop_single_stream(query=None):
             if not target_sid or target_sid not in active_streams:
                 msg_not_found = f"⚠️ <b>No se encontró ninguna transmisión activa que coincida con '<code>{html.escape(str(query))}</code>'.</b>\n\n"
                 msg_not_found += "📺 <b>Pantallas activas ahora mismo:</b>\n"
-                for s, inf in sorted(active_streams.items()):
+                for s, inf in sorted(active_streams.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 999):
                     msg_not_found += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])}\n  👉 Detener: <code>/stop {s}</code>\n"
                 msg_not_found += "\n🛑 <i>Para detener todas:</i> <code>/stopall</code>"
                 return False, msg_not_found
@@ -648,11 +690,11 @@ def stop_single_stream(query=None):
         res = f"🛑 <b>Transmisión de Pantalla #{target_sid} ({html.escape(ch_name)}) detenida con éxito.</b>"
         if active_streams:
             res += "\n\n📡 <b>Pantallas que siguen transmitiendo:</b>\n"
-            for s, inf in sorted(active_streams.items()):
+            for s, inf in sorted(active_streams.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 999):
                 res += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])} (<code>/stop {s}</code>)\n"
             res += "\n💡 <i>Para detener todas usa: <code>/stopall</code></i>"
         else:
-            res += f"\n\n✅ <i>Todas las pantallas han sido liberadas (0/{MAX_SIMULTANEOUS_STREAMS}).</i>"
+            res += "\n\n✅ <i>Todas las pantallas han sido liberadas (0 activas).</i>"
 
         return True, res
 
@@ -691,41 +733,95 @@ def stop_all_streams():
         return True, (
             f"🛑 <b>Se han detenido todas las transmisiones activas ({count}):</b>\n\n"
             f"{details}\n\n"
-            f"✅ <i>Todas las pantallas han sido liberadas (0/{MAX_SIMULTANEOUS_STREAMS}).</i>"
+            f"✅ <i>Todas las pantallas han sido liberadas (0 activas).</i>"
         )
 
 # ==============================================================================
-# SUPERVISOR AUTOMÁTICO DE RECONEXIÓN
+# SUPERVISOR INFINITO Y WATCHDOG ANTI-CONGELAMIENTO (CERO CAÍDAS)
 # ==============================================================================
 def supervisor_thread():
+    """
+    Vigila continuamente la salud de cada pantalla:
+    1. Si FFmpeg termina por EOF o error de CDN, lo reconecta INMEDIATAMENTE con URL y token nuevos.
+    2. Watchdog: si el archivo de log no crece en > 20s (proceso congelado), mata el proceso zombi y lo relanza.
+    3. Nunca se rinde: reintenta indefinidamente con backoff inteligente.
+    """
     while True:
-        time.sleep(4)
+        time.sleep(3.5)
+        now = time.time()
+        
         with stream_lock:
             for sid, info in list(active_streams.items()):
+                if not info.get("auto_restart", False):
+                    continue
+
                 proc = info.get("process")
-                if proc and proc.poll() is not None:
-                    if not info.get("auto_restart", False):
-                        continue
+                log_file = info.get("log_file")
+                
+                # Comprobar actividad en el archivo de log
+                is_stalled = False
+                if log_file and os.path.exists(log_file):
+                    try:
+                        cur_size = os.path.getsize(log_file)
+                        if cur_size > info.get("last_log_size", 0):
+                            info["last_log_size"] = cur_size
+                            info["last_active_time"] = now
+                        elif now - info.get("last_active_time", now) > 22:
+                            # Sin nuevos fotogramas durante > 22 segundos: PROCESO CONGELADO
+                            is_stalled = True
+                    except Exception:
+                        pass
 
-                    if info.get("restarts", 0) >= 15:
-                        continue
+                needs_restart = False
+                if proc is None:
+                    needs_restart = True
+                elif proc.poll() is not None:
+                    needs_restart = True
+                elif is_stalled:
+                    needs_restart = True
+                    print(f"[Watchdog] Pantalla #{sid} detectada congelada. Forzando reinicio...")
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
 
-                    info["restarts"] = info.get("restarts", 0) + 1
-                    slug = info["resolved_slug"]
-                    dest = info['key'] if info['key'].startswith(('rtmp://', 'rtmps://')) else f"rtmps://dc4-1.rtmp.t.me/s/{info['key']}"
+                if not needs_restart:
+                    # Si ha estado emitiendo de forma continua durante > 30s, resetear contador de fallos
+                    if now - info.get("start_time", 0) > 30 and info.get("restarts", 0) > 0:
+                        info["restarts"] = 0
+                    continue
 
-                    src_url, headers_str, ch_name, res_slug, ok = resolve_stream_source(slug)
-                    if ok and src_url:
-                        try:
-                            if info.get("log_handle"):
-                                info["log_handle"].close()
-                        except Exception:
-                            pass
+                # Control de reintentos continuos (backoff de 4s a 10s máximo, nunca abandonar)
+                last_restart_attempt = info.get("last_restart_attempt", 0)
+                backoff_time = min(10, 4 + (info.get("restarts", 0) // 3) * 2)
+                if now - last_restart_attempt < backoff_time:
+                    continue
 
-                        new_proc, new_out_f, log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid)
-                        info["process"] = new_proc
-                        info["log_handle"] = new_out_f
-                        info["log_file"] = log_file
+                info["last_restart_attempt"] = now
+                info["restarts"] = info.get("restarts", 0) + 1
+                info["status"] = "reconnecting"
+
+                slug = info.get("resolved_slug") or info.get("channel_input")
+                dest = info['key'] if info['key'].startswith(('rtmp://', 'rtmps://')) else f"rtmps://dc4-1.rtmp.t.me/s/{info['key']}"
+
+                # Obtener enlace fresco (nuevo token de CDN)
+                src_url, headers_str, ch_name, res_slug, ok = resolve_stream_source(slug)
+                if ok and src_url:
+                    try:
+                        if info.get("log_handle"):
+                            info["log_handle"].close()
+                    except Exception:
+                        pass
+
+                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid)
+                    info["process"] = new_proc
+                    info["log_handle"] = new_out_f
+                    info["log_file"] = new_log_file
+                    info["status"] = "running"
+                    info["last_active_time"] = time.time()
+                    info["last_log_size"] = 0
+                    print(f"[Supervisor] Pantalla #{sid} ({ch_name}) reanudada exitosamente con nuevo token.")
 
 t_super = threading.Thread(target=supervisor_thread, daemon=True)
 t_super.start()
@@ -736,10 +832,6 @@ t_super.start()
 MATCHES_AGENDA_CACHE = {"timestamp": 0, "messages": []}
 
 def fetch_tarjetaroja_schedule():
-    """
-    Obtiene la programación en directo de https://tarjetaroja.my/
-    y extrae exactamente qué canales transmiten cada partido.
-    """
     url = "https://tarjetaroja.my/"
     try:
         r = requests.get(url, headers=HEADERS_BASE, timeout=8)
@@ -819,7 +911,6 @@ def get_live_matches_agenda(curr_key):
                         continue
                     seen_slugs.add(slug)
 
-                    # Obtener nombre bonito si existe en nuestro diccionario o usar el de la web
                     cname = ch["name"]
                     if slug in TR_CHANNELS:
                         cname = TR_CHANNELS[slug]["name"]
@@ -853,49 +944,73 @@ def get_live_matches_agenda(curr_key):
 
     return get_sports_menu_messages(curr_key)
 
+# ==============================================================================
+# DIRECTORIO COMPLETO DE CANALES (/canales) - 63 SEÑALES TARJETA ROJA
+# ==============================================================================
 def get_sports_menu_messages(curr_key):
     msg1 = (
-        "🏆 <b>DIRECTORIO DE CANALES (100% TARJETA ROJA - EN VIVO)</b>\n\n"
-        "🌎 <b>SUITE COMPLETA ESPN SUR (24/7 EN DIRECTO):</b>\n"
+        "🏆 <b>DIRECTORIO DE CANALES (100% TARJETA ROJA - EN VIVO) [Parte 1/3]</b>\n\n"
+        "✨ <b>SUITE DISNEY+ EVENTOS (FÚTBOL & CHAMPIONS EN DIRECTO):</b>\n"
+        f"• 🏆 <b>Disney 1 HD:</b> <code>/stream disney-1 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 2 HD:</b> <code>/stream disney-2 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 3 HD:</b> <code>/stream disney-3 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 4 HD:</b> <code>/stream disney-4 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 5 HD:</b> <code>/stream disney-5 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 6 HD:</b> <code>/stream disney-6 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 7 HD:</b> <code>/stream disney-7 {curr_key}</code>\n"
+        f"• 🏆 <b>Disney 8 al 15:</b> <code>/stream disney8 {curr_key}</code> a <code>disney15</code>\n\n"
+        "🎬 <b>SUITE MAX (HBO / WARNER MULTISEÑAL EN VIVO):</b>\n"
+        f"• ⚽ <b>MAX 1 HD:</b> <code>/stream max1 {curr_key}</code>\n"
+        f"• ⚽ <b>MAX 2 HD:</b> <code>/stream max2 {curr_key}</code>\n"
+        f"• ⚽ <b>MAX 3 HD:</b> <code>/stream max3 {curr_key}</code>\n\n"
+        "🌎 <b>SUITE COMPLETA ESPN SUR:</b>\n"
         f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code>\n"
         f"• 🚴 <b>ESPN 3 HD (Ciclismo / Tenis):</b> <code>/stream espn3 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 4 HD (Sur):</b> <code>/stream espn4 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN 5 HD (Sur):</b> <code>/stream espn5 {curr_key}</code>\n"
         f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
-        f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-        "🦊 <b>SUITE FOX SPORTS:</b>\n"
-        f"• ⚽ <b>Fox Sports 1 (Argentina):</b> <code>/stream fox1 {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports 2 (Argentina):</b> <code>/stream fox2 {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream fox3 {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports 1 MX:</b> <code>/stream foxone {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports 2 MX:</b> <code>/stream foxone2 {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
-        "🇨🇴 <b>DIRECTV SPORTS & WIN SPORTS & ARGENTINA:</b>\n"
-        f"• ⚽ <b>DIRECTV Sports 1 HD (DSports):</b> <code>/stream dsports {curr_key}</code>\n"
-        f"• ⚽ <b>DIRECTV Sports 2 HD (DSports 2):</b> <code>/stream dsports2 {curr_key}</code>\n"
-        f"• ⚽ <b>DIRECTV Sports+ HD:</b> <code>/stream dsportsplus {curr_key}</code>\n"
-        f"• ⚽ <b>TyC Sports HD (Argentina):</b> <code>/stream tycsports {curr_key}</code>\n"
-        f"• ⚽ <b>TNT Sports HD (Argentina):</b> <code>/stream tntsports {curr_key}</code>\n"
-        f"• ⚽ <b>Win Sports+ HD (Colombia):</b> <code>/stream winplus {curr_key}</code>\n"
-        f"• ⚽ <b>Win Sports Colombia HD:</b> <code>/stream winsports {curr_key}</code>"
+        f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>"
     )
 
     msg2 = (
-        "✨ <b>SEÑALES DISNEY+ EVENTOS (FÚTBOL Y CHAMPIONS EN VIVO):</b>\n"
-        f"• 🏆 <b>Disney+ 1:</b> <code>/stream disney-1 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 2:</b> <code>/stream disney-2 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 3:</b> <code>/stream disney-3 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 4:</b> <code>/stream disney-4 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 5:</b> <code>/stream disney-5 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney+ 6 al 15:</b> <code>/stream disney-6</code> al <code>disney-15</code>\n\n"
-        "🇲🇽 <b>SUITE ViX+ & TUDN (MÉXICO / CONCACAF):</b>\n"
+        "🏆 <b>DIRECTORIO DE CANALES (TARJETA ROJA) [Parte 2/3]</b>\n\n"
+        "🦊 <b>SUITE FOX SPORTS:</b>\n"
+        f"• ⚽ <b>Fox Sports 1 Argentina:</b> <code>/stream fox1ar {curr_key}</code>\n"
+        f"• ⚽ <b>Fox Sports 2 Argentina:</b> <code>/stream fox2ar {curr_key}</code>\n"
+        f"• ⚽ <b>Fox ONE MX:</b> <code>/stream foxone {curr_key}</code>\n"
+        f"• ⚽ <b>FOX One 2:</b> <code>/stream foxone2 {curr_key}</code>\n"
+        f"• ⚽ <b>FOX One 3 / Fox Sports 3 HD:</b> <code>/stream foxone3 {curr_key}</code>\n"
+        f"• ⚽ <b>Fox Deportes USA:</b> <code>/stream fox_deportes_usa {curr_key}</code>\n"
+        f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
+        "🇲🇽 <b>SUITE ViX+ & TUDN (MÉXICO & USA):</b>\n"
         f"• 🇲🇽 <b>ViX+ TUDN Deportes 1 HD:</b> <code>/stream vix1 {curr_key}</code>\n"
         f"• 🇲🇽 <b>ViX+ Zona TUDN HD:</b> <code>/stream vix2 {curr_key}</code>\n"
         f"• 🇲🇽 <b>ViX+ Deportes 3 HD:</b> <code>/stream vix3 {curr_key}</code>\n"
         f"• 🇲🇽 <b>ViX+ Deportes 4 HD:</b> <code>/stream vix4 {curr_key}</code>\n"
         f"• 🇲🇽 <b>ViX+ Deportes 5 HD:</b> <code>/stream vix5 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>TUDN México HD:</b> <code>/stream tudn {curr_key}</code>\n\n"
+        f"• 🇲🇽 <b>TUDN MX HD:</b> <code>/stream tudn {curr_key}</code>\n"
+        f"• 🇺🇸 <b>Universo USA HD:</b> <code>/stream universo_usa {curr_key}</code>\n\n"
+        "🎟️ <b>SUITE FANATIZ (EVENTOS EXCLUSIVOS 1 AL 5):</b>\n"
+        f"• ⚽ <b>Fanatiz 1 HD:</b> <code>/stream fanatiz {curr_key}</code>\n"
+        f"• ⚽ <b>Fanatiz 2 HD:</b> <code>/stream fanatiz-2 {curr_key}</code>\n"
+        f"• ⚽ <b>Fanatiz 3 HD:</b> <code>/stream fanatiz-3 {curr_key}</code>\n"
+        f"• ⚽ <b>Fanatiz 4 HD:</b> <code>/stream fanatiz-4 {curr_key}</code>\n"
+        f"• ⚽ <b>Fanatiz 5 HD:</b> <code>/stream fanatiz-5 {curr_key}</code>"
+    )
+
+    msg3 = (
+        "🏆 <b>DIRECTORIO DE CANALES (TARJETA ROJA) [Parte 3/3]</b>\n\n"
+        "🇨🇴 <b>DIRECTV SPORTS & WIN SPORTS & BRASIL & ARGENTINA:</b>\n"
+        f"• ⚽ <b>DSports 1 HD:</b> <code>/stream dsports {curr_key}</code>\n"
+        f"• ⚽ <b>DSports 2 HD:</b> <code>/stream dsports2 {curr_key}</code>\n"
+        f"• ⚽ <b>DSports+ HD:</b> <code>/stream dsportsplus {curr_key}</code>\n"
+        f"• ⚽ <b>TyC Sports HD:</b> <code>/stream tycsports {curr_key}</code>\n"
+        f"• ⚽ <b>TNT Sports HD:</b> <code>/stream tntsports {curr_key}</code>\n"
+        f"• ⚽ <b>Win Sports + HD (Colombia):</b> <code>/stream winplus {curr_key}</code>\n"
+        f"• ⚽ <b>Win Sports HD (Colombia):</b> <code>/stream winsports {curr_key}</code>\n"
+        f"• ⚽ <b>Sport TV 1 BR (Brasil):</b> <code>/stream sporttvbr1 {curr_key}</code>\n"
+        f"• ⚽ <b>Liga 1 MAX (Perú):</b> <code>/stream liga1max {curr_key}</code>\n\n"
         "🍏 <b>APPLE TV (MLS SEASON PASS 1 AL 15):</b>\n"
         f"• ⚽ <b>Apple TV 1:</b> <code>/stream appletv1 {curr_key}</code>\n"
         f"• ⚽ <b>Apple TV 2:</b> <code>/stream appletv2 {curr_key}</code>\n"
@@ -907,12 +1022,9 @@ def get_sports_menu_messages(curr_key):
         f"• ⚽ <b>M+ Liga de Campeones 2 FHD:</b> <code>/stream campeones2 {curr_key}</code>\n\n"
         "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite el partido que quieres ver hoy.</i>"
     )
-    return [msg1, msg2]
+    return [msg1, msg2, msg3]
 
 def search_tarjetaroja(query, curr_key):
-    """
-    Busca eventos en la agenda de hoy y canales coincidentes en Tarjeta Roja.
-    """
     q = query.strip().lower()
     results = []
 
@@ -984,25 +1096,25 @@ def handle_message(msg):
 
         if text.startswith("/start") or text.startswith("/ayuda"):
             help_text = (
-                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (100% TARJETA ROJA - EN VIVO)</b>\n\n"
+                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - ESTABILIDAD TOTAL)</b>\n\n"
                 "📋 <b>COMANDOS PRINCIPALES:</b>\n"
                 "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
-                "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Directorio de canales de Tarjeta Roja\n"
+                "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de Tarjeta Roja\n"
                 "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal en Tarjeta Roja\n"
-                "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur (1 a 5)\n"
-                "• <code>/stream &lt;CANAL&gt; [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión en directo\n"
-                "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y pantalla ocupada\n"
-                "• <code>/stop [ID]</code> $\\rightarrow$ Detener transmisión activa (ej. <code>/stop 1</code>)\n"
-                "• <code>/stopall</code> $\\rightarrow$ Detener todas las transmisiones\n"
+                "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur\n"
+                "• <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión\n"
+                "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
+                "• <code>/stop [ID]</code> $\\rightarrow$ Detener pantalla activa (ej. <code>/stop 1</code>)\n"
+                "• <code>/stopall</code> $\\rightarrow$ Detener todas las pantallas activas\n"
                 f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto\n\n"
-                "🌐 <b>Servidor:</b> 100% Tarjeta Roja (https://tarjetaroja.my/ - HD / 0% Lag)"
+                "🛡️ <b>Estabilidad:</b> Watchdog anti-caídas + Reconexión automática infinita + Pantallas ilimitadas."
             )
             send_msg(chat_id, help_text)
 
         elif text.startswith("/buscar") or text.startswith("/search"):
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/buscar &lt;partido o canal&gt;</code>\nEjemplo: <code>/buscar barcelona</code> o <code>/buscar espn</code> o <code>/buscar vix</code>")
+                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/buscar &lt;partido o canal&gt;</code>\nEjemplo: <code>/buscar barcelona</code> o <code>/buscar max</code> o <code>/buscar vix</code>")
                 return
             q = parts[1].strip()
             send_msg(chat_id, f"🔍 <b>Buscando en Tarjeta Roja para '{q}'...</b>")
@@ -1025,10 +1137,6 @@ def handle_message(msg):
                 f"• ⚽ <b>ESPN 5 HD (Sur):</b> <code>/stream espn5 {curr_key}</code> o <code>/stream espn 5</code>\n"
                 f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
                 f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-                "🦊 <b>SUITE FOX SPORTS:</b>\n"
-                f"• ⚽ <b>Fox Sports 1 HD:</b> <code>/stream fox1 {curr_key}</code>\n"
-                f"• ⚽ <b>Fox Sports 2 HD:</b> <code>/stream fox2 {curr_key}</code>\n"
-                f"• ⚽ <b>Fox Sports 3 HD:</b> <code>/stream fox3 {curr_key}</code>\n\n"
                 "💡 <i>Usa <code>/partidos</code> para ver qué canal transmite cada partido hoy.</i>"
             )
             send_msg(chat_id, espn_msg)
@@ -1042,11 +1150,11 @@ def handle_message(msg):
         elif text.startswith("/stream"):
             tokens = text.split()[1:]
             if not tokens:
-                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL&gt; [STREAM_KEY]</code>\nEjemplo: <code>/stream espn</code> o <code>/stream 1 espn</code> o <code>/stream disney-2</code>")
+                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code>\nEjemplo: <code>/stream espn</code> o <code>/stream 1 espn</code> o <code>/stream disney-7 2</code>")
                 return
 
             requested_slot = None
-            if tokens and tokens[0] in ["1", "2", "3"] and len(tokens) > 1:
+            if tokens and tokens[0].isdigit() and len(tokens) > 1:
                 requested_slot = tokens[0]
                 tokens = tokens[1:]
 
@@ -1057,18 +1165,24 @@ def handle_message(msg):
                 is_stream_key = True
             elif ":" in last_token and len(last_token) >= 12:
                 is_stream_key = True
-            elif len(last_token) >= 20 and not any(kw in last_token.lower() for kw in ["espn", "fox", "sport", "deporte", "campeon", "star", "disney", "vix"]):
+            elif len(last_token) >= 20 and not any(kw in last_token.lower() for kw in ["espn", "fox", "sport", "deporte", "campeon", "star", "disney", "vix", "fanatiz", "max", "apple"]):
                 is_stream_key = True
 
             if is_stream_key and len(tokens) > 1:
                 s_key = last_token
-                ch_input = " ".join(tokens[:-1]).strip()
+                tokens = tokens[:-1]
             elif is_stream_key and len(tokens) == 1:
                 s_key = last_token
-                ch_input = "espn"
+                tokens = ["espn"]
             else:
                 s_key = curr_key
-                ch_input = " ".join(tokens).strip()
+
+            # Detección de slot al final de tokens si no se detectó al inicio (ej. /stream espn 2)
+            if not requested_slot and tokens and len(tokens) > 1 and tokens[-1].isdigit():
+                requested_slot = tokens[-1]
+                tokens = tokens[:-1]
+
+            ch_input = " ".join(tokens).strip()
 
             slot_notice = f" en Pantalla #{requested_slot}" if requested_slot else ""
             send_msg(chat_id, f"🔄 <b>Conectando a Tarjeta Roja para {ch_input}{slot_notice}...</b>")
@@ -1082,12 +1196,17 @@ def handle_message(msg):
                     return
 
                 msg_status = f"📊 <b>ESTADO DE TRANSMISIONES EN VIVO ({len(active_streams)} activas):</b>\n\n"
-                for sid, info in sorted(active_streams.items()):
+                for sid, info in sorted(active_streams.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 999):
                     elapsed = int(time.time() - info["start_time"])
                     mins = elapsed // 60
                     secs = elapsed % 60
                     proc = info.get("process")
-                    proc_state = "🟢 EMITIENDO (0% LAG)" if proc and proc.poll() is None else "🔴 DETENIDO"
+                    if proc and proc.poll() is None:
+                        proc_state = "🟢 EMITIENDO (0% LAG)"
+                    elif info.get("status") == "reconnecting":
+                        proc_state = "🔄 RECONECTANDO CON NUEVO TOKEN"
+                    else:
+                        proc_state = "🔴 DETENIDO"
 
                     last_log = ""
                     try:
@@ -1113,7 +1232,6 @@ def handle_message(msg):
                 msg_status += "🛑 <i>Para detener todas las transmisiones a la vez:</i> <code>/stopall</code>"
                 send_msg(chat_id, msg_status)
 
-        # Detección ultra flexible de /stopall (incluyendo variaciones de escritura rápida)
         elif any(text.strip().lower().startswith(c) for c in ["/stopall", "/stoppal", "/stopal", "/stoppall", "/stop all", "/stop_all", "/detener todo", "/detener todos"]):
             ok, response_msg = stop_all_streams()
             send_msg(chat_id, response_msg)
@@ -1147,7 +1265,7 @@ def handle_message(msg):
 
 def main():
     print("=" * 65)
-    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (100% TARJETA ROJA - NATIVO)")
+    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - ESTABILIDAD TOTAL)")
     print("=" * 65)
     print("Iniciando polling de Telegram...")
     offset = 0
