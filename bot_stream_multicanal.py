@@ -32,9 +32,9 @@ IPTV_DIRECT_CHANNELS = {
     "espn3": {"id": "30328", "name": "ESPN 3 HD (Sur/Argentina)"},
     "espn4": {"id": "1453275", "name": "ESPN 4 HD (Sur)"},
     "espn5": {"id": "4881", "name": "ESPN 5 / Fox Sports 2 HD (Sur)"},
-    "espn6": {"id": "4882", "name": "ESPN 6 / Fox Sports 3 HD (Sur)"},
-    "espn7": {"id": "30329", "name": "ESPN 7 / Extra HD (Sur)"},
-    "espnextra": {"id": "30329", "name": "ESPN Extra HD (Sur/Argentina)"},
+    "espn6": {"id": "4882", "name": "Fox Sports 3 / ESPN 6 HD (Sur)"},
+    "espn7": {"id": "4882", "name": "Fox Sports 3 / ESPN 7 HD (Sur)"},
+    "espnextra": {"id": "4882", "name": "Fox Sports 3 / ESPN Extra HD (Sur)"},
     "espnpremium": {"id": "4883", "name": "ESPN Premium HD (Argentina)"},
     "espn-deportes": {"id": "32038", "name": "ESPN Deportes USA"},
     # Directv Sports (DSPORTS)
@@ -89,7 +89,10 @@ IPTV_DIRECT_CHANNELS = {
     "golperu": {"id": "29848", "name": "Gol Perú HD"},
     "tudn_usa": {"id": "31987", "name": "TUDN USA HD"},
     "vix1": {"id": "985726", "name": "ViX+ TUDN Deportes 1"},
-    "vix2": {"id": "985722", "name": "ViX+ Zona TUDN"}
+    "vix2": {"id": "985722", "name": "ViX+ Zona TUDN"},
+    "vix3": {"id": "3896", "name": "US| ViX+ Deportes 03"},
+    "vix4": {"id": "3897", "name": "US| ViX+ Deportes 04"},
+    "vix5": {"id": "3898", "name": "US| ViX+ Deportes 05"}
 }
 
 def load_config():
@@ -139,9 +142,9 @@ def resolve_channel_input(raw_input):
         if "deportes" in clean or "usa" in clean:
             return "espn-deportes", "ESPN Deportes USA"
         if "extra" in clean:
-            return "espnextra", "ESPN Extra HD (Sur/Argentina)"
+            return "espnextra", "Fox Sports 3 / ESPN Extra HD (Sur)"
         if "7" in clean:
-            return "espn7", "ESPN 7 / Extra HD (Sur)"
+            return "espn7", "Fox Sports 3 / ESPN 7 HD (Sur)"
         if "6" in clean:
             return "espn6", "ESPN 6 / Fox Sports 3 HD (Sur)"
         if "5" in clean:
@@ -226,6 +229,12 @@ def resolve_channel_input(raw_input):
         return "tudn_usa", "TUDN USA HD"
 
     if "vix" in clean:
+        if "5" in clean:
+            return "vix5", "US| ViX+ Deportes 05"
+        if "4" in clean:
+            return "vix4", "US| ViX+ Deportes 04"
+        if "3" in clean:
+            return "vix3", "US| ViX+ Deportes 03"
         if "2" in clean:
             return "vix2", "ViX+ Zona TUDN"
         return "vix1", "ViX+ TUDN Deportes 1"
@@ -823,16 +832,216 @@ t_super = threading.Thread(target=supervisor_thread, daemon=True)
 t_super.start()
 
 # ==============================================================================
-# AGENDA DINÁMICA DE PARTIDOS (MAPEO 100% A CANALES IPTV)
+# AGENDA DINÁMICA DE PARTIDOS (MAPEO EXACTO A CANALES IPTV / TARJETA ROJA)
 # ==============================================================================
 MATCHES_AGENDA_CACHE = {"timestamp": 0, "messages": []}
+
+TR_SLUG_MAP = {
+    # ESPN Suite
+    "espn": ("espn", "ESPN 1 HD (Sur/Argentina)"),
+    "espn1": ("espn", "ESPN 1 HD (Sur/Argentina)"),
+    "espn2": ("espn2", "ESPN 2 HD (Sur/Argentina)"),
+    "espn3": ("espn3", "ESPN 3 HD (Sur/Argentina)"),
+    "espn4": ("espn4", "ESPN 4 HD (Sur)"),
+    "espn5": ("espn5", "ESPN 5 / Fox Sports 2 HD (Sur)"),
+    "espn6": ("espn6", "Fox Sports 3 / ESPN 6 HD (Sur)"),
+    "espn7": ("espn7", "Fox Sports 3 / ESPN 7 HD (Sur)"),
+    "espnextra": ("espnextra", "Fox Sports 3 / ESPN Extra HD (Sur)"),
+    "espnpremium": ("espnpremium", "ESPN Premium HD (Argentina)"),
+    "espndeportes": ("espn-deportes", "ESPN Deportes USA"),
+    "espn_deportes": ("espn-deportes", "ESPN Deportes USA"),
+
+    # Fox Sports Suite
+    "fox1ar": ("foxsports", "Fox Sports 1 (Argentina)"),
+    "foxsports": ("foxsports", "Fox Sports 1 (Argentina)"),
+    "foxsports1": ("foxsports", "Fox Sports 1 (Argentina)"),
+    "foxone": ("foxsports", "Fox Sports 1 (Argentina)"),
+    "fox2ar": ("foxsports2", "Fox Sports 2 (Argentina)"),
+    "foxsports2": ("foxsports2", "Fox Sports 2 (Argentina)"),
+    "foxone2": ("foxsports2", "Fox Sports 2 (Argentina)"),
+    "fox3ar": ("foxsports3", "Fox Sports 3 (Argentina)"),
+    "foxsports3": ("foxsports3", "Fox Sports 3 (Argentina)"),
+    "foxone3": ("foxsports3", "Fox Sports 3 (Argentina)"),
+    "foxpremium": ("foxpremium", "Fox Sports Premium HD"),
+    "fox_deportes_usa": ("foxsports", "Fox Sports 1 (Argentina)"),
+
+    # DIRECTV Sports (DSPORTS)
+    "dsports": ("dsports", "DIRECTV Sports 1 HD (DSports)"),
+    "dsports1": ("dsports", "DIRECTV Sports 1 HD (DSports)"),
+    "dsports2": ("dsports2", "DIRECTV Sports 2 HD (DSports 2)"),
+    "dsportsplus": ("dsportsplus", "DIRECTV Sports+ HD"),
+    "dsports3": ("dsportsplus", "DIRECTV Sports+ HD"),
+
+    # Argentina & Chile
+    "tycsports": ("tycsports", "TyC Sports HD (Argentina)"),
+    "tntsports": ("tntsports", "TNT Sports HD (Argentina)"),
+    "tntsportschile": ("tntsportschile", "TNT Sports Chile HD"),
+
+    # Colombia & Perú
+    "winplus": ("winplus", "Win Sports+ HD (Colombia)"),
+    "winsports": ("winsports", "Win Sports Colombia HD"),
+    "liga1max": ("liga1max", "Liga 1 MAX (Perú)"),
+    "golperu": ("golperu", "Gol Perú HD"),
+
+    # España (LaLiga / Champions)
+    "movistarlaliga": ("movistarlaliga", "Movistar LaLiga HD"),
+    "laliga": ("movistarlaliga", "Movistar LaLiga HD"),
+    "daznlaliga": ("daznlaliga", "DAZN LaLiga 1 FHD"),
+    "daznlaliga2": ("daznlaliga2", "DAZN LaLiga 2 FHD"),
+    "campeones": ("campeones", "Movistar Liga de Campeones 1 FHD"),
+    "campeones1": ("campeones", "Movistar Liga de Campeones 1 FHD"),
+    "campeones2": ("campeones2", "Movistar Liga de Campeones 2 FHD"),
+    "campeones3": ("campeones3", "Movistar Liga de Campeones 3 FHD"),
+    "campeones4": ("campeones4", "Movistar Liga de Campeones 4 FHD"),
+    "campeones5": ("campeones5", "Movistar Liga de Campeones 5 FHD"),
+
+    # Premier & otros
+    "skysportspremier": ("skysportspremier", "Sky Sports Premier League FHD"),
+    "skysportsmain": ("skysportsmain", "Sky Sports Main Events FHD"),
+    "nbcsports": ("nbcsports", "NBC Sports FHD"),
+
+    # México & TUDN & ViX
+    "tudn": ("tudn_usa", "TUDN USA HD"),
+    "tudnusa": ("tudn_usa", "TUDN USA HD"),
+    "vix1": ("vix1", "ViX+ TUDN Deportes 1"),
+    "vix2": ("vix2", "ViX+ Zona TUDN"),
+    "vix3": ("vix3", "US| ViX+ Deportes 03"),
+    "vix4": ("vix4", "US| ViX+ Deportes 04"),
+    "vix5": ("vix5", "US| ViX+ Deportes 05"),
+}
+
+def fetch_tarjetaroja_schedule():
+    """
+    Obtiene la programación en directo de https://tarjetaroja.my/
+    y extrae exactamente qué canales transmiten cada partido.
+    """
+    url = "https://tarjetaroja.my/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return []
+
+        html_text = r.text
+        parts = html_text.split('<article')
+        events = []
+
+        for p in parts[1:]:
+            art = '<article ' + p.split('</article>')[0] + '</article>'
+            if 'tr-event' not in art:
+                continue
+
+            m_time = re.search(r'class="tr-event-time[^"]*">([^<]+)<', art)
+            ev_time = m_time.group(1).strip() if m_time else ""
+
+            m_comp = re.search(r'class="tr-event-competition">([^<]+)<', art)
+            ev_comp = m_comp.group(1).strip().rstrip(":") if m_comp else ""
+
+            m_title = re.search(r'class="tr-event-title">(.*?)</span>\s*<span class="tr-event-chevron"', art, re.DOTALL)
+            if m_title:
+                raw_title = m_title.group(1)
+                clean_title = re.sub(r'<[^>]+>', ' ', raw_title)
+                clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+                if ev_comp and clean_title.startswith(ev_comp):
+                    match_name = clean_title[len(ev_comp):].strip().lstrip(":").strip()
+                else:
+                    match_name = clean_title
+            else:
+                m_search = re.search(r'data-search="([^"]+)"', art)
+                match_name = m_search.group(1).strip() if m_search else ""
+
+            channels = []
+            ch_sec = re.search(r'class="tr-event-channels"[^>]*>(.*?)</div>', art, re.DOTALL)
+            if ch_sec:
+                for href, cname in re.findall(r'href="([^"]+)"[^>]*>([^<]+)<', ch_sec.group(1)):
+                    slug = href.rstrip("/").split("/")[-1].lower()
+                    channels.append({"name": cname.strip(), "slug": slug})
+
+            if match_name:
+                events.append({
+                    "time": ev_time,
+                    "competition": ev_comp,
+                    "match": match_name,
+                    "channels": channels
+                })
+
+        return events
+    except Exception as e:
+        print("Error fetching tarjetaroja schedule:", e)
+        return []
 
 def get_live_matches_agenda(curr_key):
     global MATCHES_AGENDA_CACHE
     now = time.time()
-    if now - MATCHES_AGENDA_CACHE["timestamp"] < 90 and MATCHES_AGENDA_CACHE["messages"]:
+    if now - MATCHES_AGENDA_CACHE["timestamp"] < 120 and MATCHES_AGENDA_CACHE["messages"]:
         return MATCHES_AGENDA_CACHE["messages"]
 
+    # 1. Fuente Principal: Tarjeta Roja (Canales exactos donde transmiten cada partido)
+    try:
+        tr_events = fetch_tarjetaroja_schedule()
+        if tr_events:
+            agenda_blocks = []
+            for ev in tr_events:
+                matched_channels = []
+                seen_ids = set()
+
+                # Señal directa PPV (UEFA / Libertadores) del servidor IPTV
+                full_name = f"{ev['competition']}: {ev['match']}"
+                ppv_match = find_live_ppv_stream_for_match(full_name)
+                if ppv_match:
+                    sid, sname = ppv_match
+                    matched_channels.append({"id": sid, "name": f"⭐ Señal Directa 1080p ({sname})"})
+                    seen_ids.add(sid)
+
+                # Mapear canales oficiales de la lista del evento
+                for ch in ev.get("channels", []):
+                    slug = ch["slug"].lower().replace("-", "").replace("_", "")
+                    target = None
+                    for k, v in TR_SLUG_MAP.items():
+                        if k == ch["slug"].lower() or k == slug:
+                            target = v
+                            break
+                    if target:
+                        ch_id, ch_name = target
+                        if ch_id not in seen_ids:
+                            matched_channels.append({"id": ch_id, "name": ch_name})
+                            seen_ids.add(ch_id)
+
+                if not matched_channels:
+                    continue
+
+                time_str = f"[{ev['time']}] " if ev['time'] else ""
+                block = f"🏆 <b>{time_str}{html.escape(ev['competition'])}: {html.escape(ev['match'])}</b>\n"
+                for ch in matched_channels:
+                    block += f"• 📺 <i>{html.escape(ch['name'])}:</i>\n  <code>/stream {ch['id']} {curr_key}</code>\n"
+                agenda_blocks.append(block)
+
+            if agenda_blocks:
+                messages = []
+                header = (
+                    "📅 <b>AGENDA DE PARTIDOS DE HOY (SEÑALES EXACTAS IPTV - 0% LAG)</b>\n"
+                    "<i>Programación en directo verificada canal por canal:</i>\n\n"
+                )
+                current_msg = header
+                for b in agenda_blocks:
+                    if len(current_msg) + len(b) + 2 > 3500:
+                        messages.append(current_msg.strip())
+                        current_msg = b + "\n"
+                    else:
+                        current_msg += b + "\n"
+
+                if current_msg.strip():
+                    messages.append(current_msg.strip())
+
+                MATCHES_AGENDA_CACHE["timestamp"] = now
+                MATCHES_AGENDA_CACHE["messages"] = messages
+                return messages
+    except Exception as e:
+        print("Error obteniendo agenda de Tarjeta Roja:", e)
+
+    # 2. Respaldo (Fallback a ESPN Scoreboard si Tarjeta Roja no responde)
     try:
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         today_utc = now_utc.strftime("%Y%m%d")
