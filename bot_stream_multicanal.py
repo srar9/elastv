@@ -31,7 +31,8 @@ def load_config():
         except Exception:
             pass
     return {
-        "stream_key": "3936015063:nG8N_no46UfNuA6jXewiag"
+        "stream_key": "3936015063:nG8N_no46UfNuA6jXewiag",
+        "audio_delay_ms": 1200
     }
 
 def save_config(cfg):
@@ -390,20 +391,30 @@ def resolve_stream_source(channel_input):
 # ==============================================================================
 # MOTOR DE TRANSMISIÓN ULTRA-FLUIDO (REAL-TIME / ZERO B-FRAMES / SINCRONIZACIÓN PERFECTA)
 # ==============================================================================
-def launch_ffmpeg_process(source_url, headers, destination, stream_id):
+def launch_ffmpeg_process(source_url, headers, destination, stream_id, audio_delay_ms=None):
     """
     Motor definitivo de emisión en tiempo real para Telegram RTMP:
     1. Cadencia Real-Time (-re): reproduce y emite al ritmo exacto de 1 segundo de video
        por 1 segundo de reloj (speed=1.00x). Esto evita saturar el búfer de Telegram en ráfagas y
        elimina por completo los congelamientos y pausas al esperar nuevos fragmentos de la web.
-    2. Zero B-Frames (-bf 0) y Perfil Baseline: decodificación instantánea en el reproductor de
+    2. Calibración de Audio Milimétrica (adelay): Telegram RTMP renderiza el audio ~1.2s antes
+       del video debido al búfer de video del reproductor. El filtro adelay sincroniza exactamente
+       la voz con el movimiento de los labios y el balón.
+    3. Zero B-Frames (-bf 0) y Perfil Baseline: decodificación instantánea en el reproductor de
        Telegram sin retraso ni jitter de reordenamiento de cuadros.
-    3. Sincronización A/V Perfecta (aresample=async=1000:first_pts=0): audio y video inician
-       alineados en PTS 0.000 y se mantienen sincronizados sin desfase (<20ms).
-    4. Interleaving Estándar FLV: los paquetes de audio y video se alternan armónicamente para
-       evitar que el audio se adelante o retrase respecto a la imagen.
-    5. Keyframes estrictos cada 2 segundos (-g 60 -keyint_min 60): sincronización continua.
+    4. Keyframes estrictos cada 2 segundos (-g 60 -keyint_min 60): sincronización continua.
     """
+    global CONFIG
+    if audio_delay_ms is None:
+        delay = int(CONFIG.get("audio_delay_ms", 1200))
+    else:
+        delay = int(audio_delay_ms)
+
+    if delay > 0:
+        af_str = f"adelay={delay}|{delay},aresample=async=1000"
+    else:
+        af_str = "aresample=async=1000"
+
     cmd = [
         "ffmpeg",
         "-y",
@@ -437,7 +448,7 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
         "-keyint_min", "60",
         "-sc_threshold", "0",
         "-pix_fmt", "yuv420p",
-        "-af", "aresample=async=1000:first_pts=0",
+        "-af", af_str,
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "44100",
@@ -534,6 +545,10 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "resolved_slug": resolved_slug,
             "channel_name": channel_name,
             "key": clean_key,
+            "destination": destination,
+            "source_url": source_url,
+            "headers_str": headers_str,
+            "audio_delay_ms": int(CONFIG.get("audio_delay_ms", 1200)),
             "process": None,
             "log_handle": None,
             "log_file": None,
@@ -546,7 +561,8 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "status": "starting"
         }
 
-    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot)
+    current_delay = active_streams[target_slot]["audio_delay_ms"]
+    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot, audio_delay_ms=current_delay)
 
     with stream_lock:
         if target_slot in active_streams and active_streams[target_slot].get("key") == clean_key:
@@ -584,6 +600,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
         return False, f"❌ <b>Error al conectar con Telegram RTMP</b> (Código: {poll_res})\n\n<code>{html.escape(logs)}</code>"
 
     active_count = len(active_streams)
+    delay_info = f"{current_delay} ms ({current_delay/1000.0:.2f}s)"
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
@@ -591,9 +608,83 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
         f"🌐 <b>Servidor:</b> Tarjeta Roja Nativo (https://tarjetaroja.my/)\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
         f"📡 <b>Pantallas Activas:</b> {active_count} simultáneas en emisión\n"
-        f"⚙️ <b>Fluidez:</b> 30 FPS Constantes / Sincronización Total (Sin Lag)\n\n"
+        f"⏱️ <b>Audio Calibrado:</b> <code>{delay_info}</code> (Ajustable con <code>/delay</code>)\n\n"
         f"🛑 <i>Para detener esta pantalla:</i> <code>/stop {target_slot}</code>\n"
         f"🛑 <i>Para detener todas las pantallas:</i> <code>/stopall</code>"
+    )
+
+
+def set_audio_delay(delay_input, target_slot=None):
+    """
+    Permite calibrar el desfase de audio en milisegundos o segundos en tiempo real.
+    Ejemplos: /delay +300 (atrasar audio), /delay -200 (adelantar), /delay 1500 (fijar en 1.5s), /delay 0
+    """
+    global CONFIG
+    curr_delay = int(CONFIG.get("audio_delay_ms", 1200))
+    val_str = str(delay_input).strip().lower()
+    is_relative = val_str.startswith(('+', '-'))
+
+    cleaned = val_str.rstrip('s').rstrip('ms')
+    try:
+        if '.' in cleaned:
+            val = int(float(cleaned) * 1000)
+        else:
+            val = int(cleaned)
+    except ValueError:
+        return False, f"⚠️ Formato de retraso inválido: <code>{html.escape(str(delay_input))}</code>.\nUsa milisegundos como <code>1500</code> o <code>+300</code>, o segundos como <code>1.5</code>."
+
+    new_val = curr_delay + val if is_relative else val
+    new_val = max(0, min(10000, new_val))
+
+    CONFIG["audio_delay_ms"] = new_val
+    save_config(CONFIG)
+
+    restarted_slots = []
+    with stream_lock:
+        targets = [target_slot] if target_slot and target_slot in active_streams else list(active_streams.keys())
+        for sid in targets:
+            inf = active_streams.get(sid)
+            if not inf:
+                continue
+            inf["audio_delay_ms"] = new_val
+            old_p = inf.get("process")
+            if old_p:
+                try:
+                    old_p.terminate()
+                    try:
+                        old_p.wait(timeout=1.5)
+                    except subprocess.TimeoutExpired:
+                        old_p.kill()
+                except Exception:
+                    pass
+            try:
+                if inf.get("log_handle"):
+                    inf["log_handle"].close()
+            except Exception:
+                pass
+
+            s_url = inf.get("source_url")
+            h_str = inf.get("headers_str")
+            dest = inf.get("destination") or (inf['key'] if inf['key'].startswith(('rtmp://', 'rtmps://')) else f"rtmps://dc4-1.rtmp.t.me/s/{inf['key']}")
+            if s_url:
+                new_proc, new_out_f, new_log_file = launch_ffmpeg_process(s_url, h_str, dest, sid, audio_delay_ms=new_val)
+                inf["process"] = new_proc
+                inf["log_handle"] = new_out_f
+                inf["log_file"] = new_log_file
+                inf["last_active_time"] = time.time()
+                restarted_slots.append(sid)
+
+    sec_val = new_val / 1000.0
+    restart_note = f"\n🔄 <i>Transmisión #{', #'.join(restarted_slots)} recalibrada en vivo al instante.</i>" if restarted_slots else "\n💡 <i>Se aplicará automáticamente a tus próximas transmisiones.</i>"
+
+    return True, (
+        f"⏱️ <b>SINCRONIZACIÓN DE AUDIO ACTUALIZADA</b>\n\n"
+        f"🔊 <b>Nuevo retraso de audio:</b> <code>{new_val} ms</code> ({sec_val:.2f} segundos)\n"
+        f"{restart_note}\n\n"
+        "👉 <b>Si necesitas ajustar más:</b>\n"
+        "• <code>/delay +300</code> $\rightarrow$ Atrasar un poco más\n"
+        "• <code>/delay -300</code> $\rightarrow$ Adelantar audio\n"
+        "• <code>/delay 0</code> $\rightarrow$ Quitar retraso"
     )
 
 def stop_single_stream(query=None):
@@ -784,7 +875,8 @@ def supervisor_thread():
                     except Exception:
                         pass
 
-                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid)
+                    curr_del = info.get("audio_delay_ms", int(CONFIG.get("audio_delay_ms", 1200)))
+                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid, audio_delay_ms=curr_del)
                     info["process"] = new_proc
                     info["log_handle"] = new_out_f
                     info["log_file"] = new_log_file
@@ -1075,9 +1167,38 @@ def handle_message(msg):
                 "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
                 "• <code>/stop [ID]</code> $\\rightarrow$ Detener pantalla activa (ej. <code>/stop 1</code>)\n"
                 "• <code>/stopall</code> $\\rightarrow$ Detener todas las pantallas activas\n"
+                "• <code>/delay &lt;ms o s&gt;</code> $\\rightarrow$ Calibrar audio (ej: <code>/delay +300</code> o <code>/delay 1500</code>)\n"
                 f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto"
             )
             send_msg(chat_id, help_text)
+
+        elif text.startswith("/delay") or text.startswith("/sync") or text.startswith("/audio"):
+            parts = text.split()
+            curr_delay = int(CONFIG.get("audio_delay_ms", 1200))
+            if len(parts) == 1:
+                sec_val = curr_delay / 1000.0
+                delay_help = (
+                    "⏱️ <b>SINCRONIZACIÓN DE AUDIO (TELEGRAM RTMP)</b>\n\n"
+                    f"🔊 <b>Retraso actual de audio:</b> <code>{curr_delay} ms</code> ({sec_val:.2f} segundos)\n\n"
+                    "👉 <b>Si el audio se escucha ANTES del video (adelantado):</b>\n"
+                    "• <code>/delay +300</code> $\rightarrow$ Atrasar 300 ms más\n"
+                    "• <code>/delay 1500</code> $\rightarrow$ Fijar en 1.5 segundos\n"
+                    "• <code>/delay 2000</code> $\rightarrow$ Fijar en 2.0 segundos\n\n"
+                    "👉 <b>Si el audio se escucha DESPUÉS del video (atrasado):</b>\n"
+                    "• <code>/delay -300</code> $\rightarrow$ Adelantar 300 ms\n"
+                    "• <code>/delay 800</code> $\rightarrow$ Fijar en 800 ms\n"
+                    "• <code>/delay 0</code> $\rightarrow$ Sin retraso (0 ms)\n\n"
+                    "💡 <i>Al enviar el comando, la transmisión activa se recalibra al instante sin cortar tu sala.</i>"
+                )
+                send_msg(chat_id, delay_help)
+            elif len(parts) == 2:
+                ok, resp = set_audio_delay(parts[1])
+                send_msg(chat_id, resp)
+            elif len(parts) >= 3:
+                slot = parts[1] if parts[1].isdigit() else parts[2]
+                val = parts[2] if parts[1].isdigit() else parts[1]
+                ok, resp = set_audio_delay(val, target_slot=slot)
+                send_msg(chat_id, resp)
 
         elif text.startswith("/buscar") or text.startswith("/search"):
             parts = text.split(maxsplit=1)
