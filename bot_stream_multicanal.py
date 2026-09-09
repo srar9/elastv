@@ -624,46 +624,85 @@ def start_single_stream(channel_input, stream_key, chat_id):
     if not ok or not source_url:
         return False, f"❌ No se encontró el canal <b>{html.escape(clean_channel_input)}</b> en el IPTV. Usa <code>/canales</code> o <code>/buscar &lt;nombre&gt;</code>."
     
-    if clean_key.startswith("rtmp://") or clean_key.startswith("rtmps://"):
-        destination = clean_key
-    else:
-        destination = f"rtmps://dc4-1.rtmp.t.me/s/{clean_key}"
+    destination = clean_key if clean_key.startswith(("rtmp://", "rtmps://")) else f"rtmps://dc4-1.rtmp.t.me/s/{clean_key}"
 
-    # Manejo inteligente de conexiones simultáneas (hasta IPTV_MAX_CONNECTIONS = 3 pantallas)
+    # Asignación segura y determinista de Pantalla / Slot (1, 2 o 3)
+    target_slot = None
     with stream_lock:
-        # 1. Si ya existe una transmisión con exactamente esta misma Stream Key, la reemplazamos
-        for sid, info in list(active_streams.items()):
-            if info["key"] == clean_key:
-                info["auto_restart"] = False
-                try:
-                    info["process"].terminate()
-                    info["process"].wait(timeout=2)
-                except Exception:
+        # A. Si el usuario solicitó explícitamente un número de pantalla (ej. "1", "2", "3")
+        if requested_slot and str(requested_slot) in ["1", "2", "3"]:
+            target_slot = str(requested_slot)
+            if target_slot in active_streams:
+                old_info = active_streams[target_slot]
+                old_info["auto_restart"] = False
+                old_proc = old_info.get("process")
+                if old_proc:
                     try:
-                        info["process"].kill()
+                        old_proc.terminate()
+                        try:
+                            old_proc.wait(timeout=1.5)
+                        except subprocess.TimeoutExpired:
+                            old_proc.kill()
+                            old_proc.wait(timeout=1)
+                    except Exception:
+                        try:
+                            old_proc.kill()
+                        except Exception:
+                            pass
+                try:
+                    if old_info.get("log_handle"):
+                        old_info["log_handle"].close()
+                except Exception:
+                    pass
+                del active_streams[target_slot]
+
+        # B. Si ya existe una transmisión con exactamente esta misma Stream Key, reutilizamos SU pantalla
+        if not target_slot:
+            for sid, info in list(active_streams.items()):
+                if info.get("key") == clean_key:
+                    target_slot = sid
+                    info["auto_restart"] = False
+                    old_proc = info.get("process")
+                    if old_proc:
+                        try:
+                            old_proc.terminate()
+                            try:
+                                old_proc.wait(timeout=1.5)
+                            except subprocess.TimeoutExpired:
+                                old_proc.kill()
+                                old_proc.wait(timeout=1)
+                        except Exception:
+                            try:
+                                old_proc.kill()
+                            except Exception:
+                                pass
+                    try:
+                        if info.get("log_handle"):
+                            info["log_handle"].close()
                     except Exception:
                         pass
-                try:
-                    if info.get("log_handle"):
-                        info["log_handle"].close()
-                except Exception:
-                    pass
-                del active_streams[sid]
-                break
+                    del active_streams[sid]
+                    break
 
-        # 2. Si se alcanzó el límite máximo de conexiones simultáneas (3 pantallas), liberar la más antigua
-        if len(active_streams) >= IPTV_MAX_CONNECTIONS:
-            oldest_sid = sorted(active_streams.keys(), key=lambda x: active_streams[x]["start_time"])[0]
+        # C. Si no hay slot libre y alcanzamos el límite de 3 conexiones simultáneas, liberar la más antigua
+        if not target_slot and len(active_streams) >= IPTV_MAX_CONNECTIONS:
+            oldest_sid = sorted(active_streams.keys(), key=lambda x: active_streams[x].get("start_time", 0))[0]
             old_info = active_streams[oldest_sid]
             old_info["auto_restart"] = False
-            try:
-                old_info["process"].terminate()
-                old_info["process"].wait(timeout=2)
-            except Exception:
+            old_proc = old_info.get("process")
+            if old_proc:
                 try:
-                    old_info["process"].kill()
+                    old_proc.terminate()
+                    try:
+                        old_proc.wait(timeout=1.5)
+                    except subprocess.TimeoutExpired:
+                        old_proc.kill()
+                        old_proc.wait(timeout=1)
                 except Exception:
-                    pass
+                    try:
+                        old_proc.kill()
+                    except Exception:
+                        pass
             try:
                 if old_info.get("log_handle"):
                     old_info["log_handle"].close()
@@ -671,12 +710,40 @@ def start_single_stream(channel_input, stream_key, chat_id):
                 pass
             del active_streams[oldest_sid]
 
-    with stream_lock:
-        stream_id = str(len(active_streams) + 1)
-        while stream_id in active_streams:
-            stream_id = str(int(stream_id) + 1)
+        # D. Asignar el número de pantalla libre más bajo (1, 2 o 3)
+        if not target_slot:
+            for s in ["1", "2", "3"]:
+                if s not in active_streams:
+                    target_slot = s
+                    break
+            if not target_slot:
+                target_slot = "1"
 
-    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, stream_id)
+        # RESERVA INMEDIATA DEL SLOT BAJO LOCK: Evita condiciones de carrera entre hilos simultáneos
+        active_streams[target_slot] = {
+            "channel_input": clean_channel_input,
+            "resolved_slug": resolved_slug,
+            "channel_name": channel_name,
+            "key": clean_key,
+            "process": None,
+            "log_handle": None,
+            "log_file": None,
+            "chat_id": chat_id,
+            "start_time": time.time(),
+            "auto_restart": True,
+            "restarts": 0,
+            "status": "starting"
+        }
+
+    # Lanzar proceso FFmpeg asociado a la pantalla seleccionada
+    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot)
+
+    with stream_lock:
+        if target_slot in active_streams and active_streams[target_slot].get("key") == clean_key:
+            active_streams[target_slot]["process"] = proc
+            active_streams[target_slot]["log_handle"] = out_f
+            active_streams[target_slot]["log_file"] = log_file
+            active_streams[target_slot]["status"] = "running"
 
     time.sleep(3.5)
     poll_res = proc.poll()
@@ -687,6 +754,10 @@ def start_single_stream(channel_input, stream_key, chat_id):
                 logs = f.read()[-600:]
         except Exception:
             logs = "Sin logs"
+
+        with stream_lock:
+            if target_slot in active_streams and active_streams[target_slot].get("process") == proc:
+                del active_streams[target_slot]
 
         if "Input/output error" in logs or "Error opening output" in logs or "Error number -138" in logs or "Connection to tcp://" in logs:
             return False, (
@@ -701,63 +772,85 @@ def start_single_stream(channel_input, stream_key, chat_id):
 
         return False, f"❌ <b>Error al conectar con Telegram RTMP</b> (Código: {poll_res})\n\n<code>{html.escape(logs)}</code>"
 
-    with stream_lock:
-        active_streams[stream_id] = {
-            "channel_input": clean_channel_input,
-            "resolved_slug": resolved_slug,
-            "channel_name": channel_name,
-            "key": clean_key,
-            "process": proc,
-            "log_handle": out_f,
-            "log_file": log_file,
-            "chat_id": chat_id,
-            "start_time": time.time(),
-            "auto_restart": True,
-            "restarts": 0
-        }
-
     active_count = len(active_streams)
     return True, (
-        f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (#{stream_id})</b>\n\n"
+        f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
         f"🌐 <b>Servidor:</b> IPTV Dedicado Xtream (0% Lag / HD)\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
-        f"📡 <b>Pantallas Activas:</b> {active_count}/{IPTV_MAX_CONNECTIONS} simultáneas\n"
+        f"📡 <b>Pantallas Ocupadas:</b> {active_count}/{IPTV_MAX_CONNECTIONS} simultáneas\n"
         f"⚙️ <b>Audio/Video:</b> 720p @ 30fps (Sincronización AV Bloqueada)\n\n"
-        f"🛑 <i>Para detener usa:</i> <code>/stop {stream_id}</code> o <code>/stopall</code>"
+        f"🛑 <i>Para detener esta pantalla:</i> <code>/stop {target_slot}</code>\n"
+        f"🛑 <i>Para detener todas las pantallas:</i> <code>/stopall</code>"
     )
 
-def stop_single_stream(stream_id_or_key=None):
+def stop_single_stream(query=None):
     with stream_lock:
         if not active_streams:
             return False, "⚠️ No hay ninguna transmisión activa en este momento."
 
-        target_sid = None
-        if stream_id_or_key:
-            clean_val = clean_arg(stream_id_or_key)
-            if clean_val in active_streams:
-                target_sid = clean_val
+        # Si no se pasó argumento
+        if not query or not str(query).strip():
+            if len(active_streams) == 1:
+                target_sid = list(active_streams.keys())[0]
             else:
+                # Si hay más de una, no adivinar ni detener al azar para evitar confusiones
+                msg_choices = f"⚠️ <b>Tienes {len(active_streams)} transmisiones activas. ¿Cuál deseas detener?</b>\n\n"
+                for s, inf in sorted(active_streams.items()):
+                    msg_choices += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])}\n  👉 Detener: <code>/stop {s}</code>\n\n"
+                msg_choices += "🛑 <b>Para detener todas a la vez:</b> <code>/stopall</code>"
+                return False, msg_choices
+        else:
+            q_raw = clean_arg(str(query)).lower()
+            q_clean = q_raw.lstrip("#").strip()
+
+            target_sid = None
+
+            # 1. Búsqueda exacta por número de pantalla ("1", "2", "3")
+            if q_clean in active_streams:
+                target_sid = q_clean
+
+            # 2. Búsqueda por nombre de canal, slug o texto de entrada (ej. "espn", "fox", "tyc")
+            if not target_sid:
                 for sid, info in active_streams.items():
-                    if info["key"] == clean_val:
+                    c_name = info.get("channel_name", "").lower()
+                    c_slug = info.get("resolved_slug", "").lower()
+                    c_in = info.get("channel_input", "").lower()
+                    if q_raw in c_name or q_raw in c_slug or q_raw in c_in or q_clean in c_name or q_clean in c_slug:
                         target_sid = sid
                         break
-        else:
-            target_sid = list(active_streams.keys())[0]
 
-        if not target_sid or target_sid not in active_streams:
-            return False, f"⚠️ No se encontró ninguna transmisión activa con ese ID o Key."
+            # 3. Búsqueda por Stream Key
+            if not target_sid:
+                for sid, info in active_streams.items():
+                    if q_raw in info.get("key", "").lower():
+                        target_sid = sid
+                        break
+
+            if not target_sid or target_sid not in active_streams:
+                msg_not_found = f"⚠️ <b>No se encontró ninguna transmisión activa que coincida con '<code>{html.escape(str(query))}</code>'.</b>\n\n"
+                msg_not_found += "📺 <b>Pantallas activas ahora mismo:</b>\n"
+                for s, inf in sorted(active_streams.items()):
+                    msg_not_found += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])}\n  👉 Detener: <code>/stop {s}</code>\n"
+                msg_not_found += "\n🛑 <i>Para detener todas:</i> <code>/stopall</code>"
+                return False, msg_not_found
 
         info = active_streams[target_sid]
         info["auto_restart"] = False
-        try:
-            info["process"].terminate()
-            info["process"].wait(timeout=2)
-        except Exception:
+        proc = info.get("process")
+        if proc:
             try:
-                info["process"].kill()
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=1)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
         try:
             if info.get("log_handle"):
@@ -767,7 +860,17 @@ def stop_single_stream(stream_id_or_key=None):
 
         ch_name = info["channel_name"]
         del active_streams[target_sid]
-        return True, f"🛑 <b>Transmisión #{target_sid} ({html.escape(ch_name)}) detenida con éxito.</b>"
+
+        res = f"🛑 <b>Transmisión de Pantalla #{target_sid} ({html.escape(ch_name)}) detenida con éxito.</b>"
+        if active_streams:
+            res += "\n\n📡 <b>Pantallas que siguen transmitiendo:</b>\n"
+            for s, inf in sorted(active_streams.items()):
+                res += f"• 📺 <b>Pantalla #{s}:</b> {html.escape(inf['channel_name'])} (<code>/stop {s}</code>)\n"
+            res += "\n💡 <i>Para detener todas usa: <code>/stopall</code></i>"
+        else:
+            res += "\n\n✅ <i>Todas las pantallas han sido liberadas (0/3).</i>"
+
+        return True, res
 
 def stop_all_streams():
     with stream_lock:
@@ -775,24 +878,37 @@ def stop_all_streams():
             return False, "⚠️ No hay transmisiones activas para detener."
 
         count = len(active_streams)
+        stopped_list = []
         for sid, info in list(active_streams.items()):
             info["auto_restart"] = False
-            try:
-                info["process"].terminate()
-                info["process"].wait(timeout=2)
-            except Exception:
+            proc = info.get("process")
+            if proc:
                 try:
-                    info["process"].kill()
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=1)
                 except Exception:
-                    pass
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
             try:
                 if info.get("log_handle"):
                     info["log_handle"].close()
             except Exception:
                 pass
+            stopped_list.append(f"Pantalla #{sid}: {info.get('channel_name', 'Canal')}")
             del active_streams[sid]
 
-        return True, f"🛑 <b>Se han detenido las {count} transmisiones activas.</b>"
+        details = "\n".join([f"• 🛑 <b>{html.escape(item)}</b>" for item in stopped_list])
+        return True, (
+            f"🛑 <b>Se han detenido todas las transmisiones activas ({count}):</b>\n\n"
+            f"{details}\n\n"
+            f"✅ <i>Todas las pantallas han sido liberadas (0/3).</i>"
+        )
 
 # ==============================================================================
 # SUPERVISOR AUTOMÁTICO DE RECONEXIÓN
@@ -1335,8 +1451,13 @@ def handle_message(msg):
         elif text.startswith("/stream"):
             tokens = text.split()[1:]
             if not tokens:
-                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL o ID&gt; [STREAM_KEY]</code>\nEjemplo: <code>/stream espn 3</code> o <code>/stream fox 2</code> o <code>/stream dsports</code>")
+                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL o ID&gt; [STREAM_KEY]</code>\nEjemplo: <code>/stream espn 3</code> o <code>/stream 1 espn</code> o <code>/stream 2 fox 2</code>")
                 return
+
+            requested_slot = None
+            if tokens and tokens[0] in ["1", "2", "3"] and len(tokens) > 1:
+                requested_slot = tokens[0]
+                tokens = tokens[1:]
 
             # Detección inteligente de Stream Key RTMP de Telegram
             last_token = tokens[-1].strip().strip("<>").strip('"').strip("'")
@@ -1358,8 +1479,9 @@ def handle_message(msg):
                 s_key = curr_key
                 ch_input = " ".join(tokens).strip()
 
-            send_msg(chat_id, f"🔄 <b>Conectando señal IPTV para {ch_input}...</b>")
-            ok, response_msg = start_single_stream(ch_input, s_key, chat_id)
+            slot_notice = f" en Pantalla #{requested_slot}" if requested_slot else ""
+            send_msg(chat_id, f"🔄 <b>Conectando señal IPTV para {ch_input}{slot_notice}...</b>")
+            ok, response_msg = start_single_stream(ch_input, s_key, chat_id, requested_slot=requested_slot)
             send_msg(chat_id, response_msg)
 
         elif text.startswith("/status") or text.startswith("/logs"):
@@ -1369,11 +1491,12 @@ def handle_message(msg):
                     return
 
                 msg_status = f"📊 <b>ESTADO DE TRANSMISIONES EN VIVO ({len(active_streams)} activas):</b>\n\n"
-                for sid, info in active_streams.items():
+                for sid, info in sorted(active_streams.items()):
                     elapsed = int(time.time() - info["start_time"])
                     mins = elapsed // 60
                     secs = elapsed % 60
-                    proc_state = "🟢 EN EJECUCIÓN (EMITIENDO)" if info["process"].poll() is None else "🔴 DETENIDO"
+                    proc = info.get("process")
+                    proc_state = "🟢 EMITIENDO (0% LAG)" if proc and proc.poll() is None else "🔴 DETENIDO"
                     
                     last_log = ""
                     try:
@@ -1385,28 +1508,32 @@ def handle_message(msg):
                         pass
 
                     msg_status += (
-                        f"🔹 <b>Stream #{sid}:</b> {html.escape(info['channel_name'])}\n"
+                        f"🔹 <b>Pantalla #{sid}:</b> {html.escape(info['channel_name'])} [<code>{html.escape(info['resolved_slug'])}</code>]\n"
                         f"• 🌐 <b>Estado:</b> {proc_state}\n"
                         f"• ⏱️ <b>Tiempo activo:</b> {mins}m {secs}s\n"
                         f"• 🔑 <b>Key:</b> <code>{info['key'][:12]}...</code>\n"
-                        f"• 🛑 <b>Detener:</b> <code>/stop {sid}</code>\n"
+                        f"• 🛑 <b>Detener esta pantalla:</b> <code>/stop {sid}</code>\n"
                     )
                     if last_log:
                         msg_status += f"• 📋 <b>Último log FFmpeg:</b>\n<code>{html.escape(last_log)}</code>\n\n"
                     else:
                         msg_status += "\n"
 
-                msg_status += "🛑 <i>Para detener todas las transmisiones:</i> <code>/stopall</code>"
+                msg_status += "🛑 <i>Para detener todas las transmisiones a la vez:</i> <code>/stopall</code>"
                 send_msg(chat_id, msg_status)
 
-        elif text.startswith("/stopall"):
+        # Detección ultra flexible de /stopall (incluyendo errores como /stoppal, /stop all, /stopal, /detener todo)
+        elif any(text.strip().lower().startswith(c) for c in ["/stopall", "/stoppal", "/stopal", "/stoppall", "/stop all", "/stop_all", "/detener todo", "/detener todos"]):
             ok, response_msg = stop_all_streams()
             send_msg(chat_id, response_msg)
 
-        elif text.startswith("/stop"):
+        elif text.startswith(("/stop", "/detener", "/pausar", "/pause")):
             parts = text.split(maxsplit=1)
             arg = parts[1].strip() if len(parts) > 1 else None
-            ok, response_msg = stop_single_stream(arg)
+            if arg and arg.lower() in ["all", "todas", "todo", "todos"]:
+                ok, response_msg = stop_all_streams()
+            else:
+                ok, response_msg = stop_single_stream(arg)
             send_msg(chat_id, response_msg)
 
         elif text.startswith("/key"):
