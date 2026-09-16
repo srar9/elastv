@@ -1037,7 +1037,7 @@ def search_tarjetaroja(query, curr_key):
 
     return "\n".join(results)
 
-def send_msg(chat_id, text, parse_mode="HTML", reply_markup=None):
+def send_msg(chat_id, text, parse_mode="HTML"):
     try:
         url = f"{API_URL}/sendMessage"
         payload = {
@@ -1046,29 +1046,9 @@ def send_msg(chat_id, text, parse_mode="HTML", reply_markup=None):
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
         }
-        if reply_markup:
-            payload["reply_markup"] = reply_markup
-        r = requests.post(url, json=payload, timeout=8)
-        return r.json()
-    except Exception as e:
-        print("Error enviando mensaje a Telegram:", e)
-        return None
-
-def setup_menu_button():
-    try:
-        url = f"{API_URL}/setChatMenuButton"
-        payload = {
-            "menu_button": {
-                "type": "web_app",
-                "text": "📺 Ver Partidos en Vivo",
-                "web_app": {
-                    "url": "https://elasdelfutbol-production.up.railway.app"
-                }
-            }
-        }
         requests.post(url, json=payload, timeout=8)
     except Exception as e:
-        print("Error configurando menu_button:", e)
+        print("Error enviando mensaje a Telegram:", e)
 
 def handle_message(msg):
     global CONFIG
@@ -1088,120 +1068,21 @@ def handle_message(msg):
 
         if text.startswith("/start") or text.startswith("/ayuda"):
             help_text = (
-                "⚽ <b>PLATAFORMA DEPORTIVA ELCiro (EN DIRECTO)</b>\n\n"
-                "🚀 <b>Modo Telegram Mini App (100% Inmune a Bloqueos):</b>\n"
-                "Mira todos los partidos en HD directamente dentro de Telegram con 1 solo toque, sin riesgo de que cierren canales ni cortes.\n\n"
+                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)</b>\n\n"
+                "⚡ <b>Rendimiento:</b> Modo Ultra-Fluido Zero B-Frames (0% Lag / 0% Tirones en Telegram).\n\n"
                 "📋 <b>COMANDOS PRINCIPALES:</b>\n"
-                "• <code>/web</code> $\\rightarrow$ Abrir la Mini App dentro de Telegram\n"
-                "• <code>/post &lt;@canal&gt; [canal o texto]</code> $\\rightarrow$ Publicar anuncio interactivo en tu canal\n"
-                "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver agenda de partidos de hoy\n"
+                "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
                 "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de ElCiro\n"
-                "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal\n"
-                "• <code>/stream &lt;CANAL&gt; [PANTALLA]</code> $\\rightarrow$ Transmitir por RTMP tradicional"
+                "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal en ElCiro\n"
+                "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur\n"
+                "• <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión\n"
+                "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
+                "• <code>/stop [ID]</code> $\\rightarrow$ Detener pantalla activa (ej. <code>/stop 1</code>)\n"
+                "• <code>/stopall</code> $\\rightarrow$ Detener todas las pantallas activas\n"
+                "• <code>/delay &lt;ms o s&gt;</code> $\\rightarrow$ Calibrar audio (ej: <code>/delay +300</code> o <code>/delay 1500</code>)\n"
+                f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto"
             )
-            webapp_kb = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "📺 ABRIR ELCiro EN VIVO (Mini App)",
-                            "web_app": {"url": "https://elasdelfutbol-production.up.railway.app"}
-                        }
-                    ],
-                    [
-                        {
-                            "text": "⚽ Partidos de Hoy",
-                            "web_app": {"url": "https://elasdelfutbol-production.up.railway.app"}
-                        },
-                        {
-                            "text": "📡 Canales 24/7",
-                            "web_app": {"url": "https://elasdelfutbol-production.up.railway.app/canales"}
-                        }
-                    ]
-                ]
-            }
-            send_msg(chat_id, help_text, reply_markup=webapp_kb)
-
-        elif text.startswith("/web") or text.startswith("/app"):
-            web_msg = (
-                "📱 <b>ELCiro Mini App en Telegram:</b>\n\n"
-                "Toca el botón de abajo para desplegar el reproductor en vivo y la cartelera completa de partidos sin salir de Telegram:"
-            )
-            webapp_kb = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "▶️ ENTRAR A ELCiro EN VIVO",
-                            "web_app": {"url": "https://elasdelfutbol-production.up.railway.app"}
-                        }
-                    ]
-                ]
-            }
-            send_msg(chat_id, web_msg, reply_markup=webapp_kb)
-
-        elif text.startswith("/post") or text.startswith("/anunciar") or text.startswith("/publicar"):
-            parts = text.split(maxsplit=2)
-            if len(parts) < 2:
-                send_msg(
-                    chat_id, 
-                    "⚠️ <b>Uso:</b> <code>/post &lt;@canal_o_id&gt; [canal o texto]</code>\n\n"
-                    "<b>Ejemplos:</b>\n"
-                    "• <code>/post @mi_canal</code> $\\rightarrow$ Publica la cartelera de hoy con botón interactivo\n"
-                    "• <code>/post @mi_canal espn</code> $\\rightarrow$ Publica botón directo al canal ESPN\n"
-                    "• <code>/post @mi_canal Barcelona vs Real Madrid | espn</code> $\\rightarrow$ Partido personalizado con botón"
-                )
-                return
-
-            target_channel = parts[1].strip()
-            extra = parts[2].strip() if len(parts) > 2 else ""
-
-            target_slug = "espn"
-            match_title = "⚽ Transmisión Deportiva en Vivo"
-
-            if extra:
-                if "|" in extra:
-                    m_parts = extra.split("|", 1)
-                    match_title = f"⚽ <b>{m_parts[0].strip()}</b>"
-                    slug_candidate, _ = normalize_channel_name(m_parts[1].strip())
-                    target_slug = slug_candidate
-                else:
-                    slug_candidate, clean_name = normalize_channel_name(extra)
-                    if slug_candidate in TR_CHANNELS:
-                        target_slug = slug_candidate
-                        match_title = f"📺 <b>{clean_name} en Directo</b>"
-                    else:
-                        match_title = f"⚽ <b>{extra}</b>"
-
-            target_url = f"https://elasdelfutbol-production.up.railway.app/ver/{target_slug}" if extra else "https://elasdelfutbol-production.up.railway.app"
-
-            post_text = (
-                f"{match_title}\n\n"
-                "🔥 <b>¡TRANSMISIÓN EN VIVO SIN CORTES!</b>\n"
-                "Toca el botón interactivo de abajo para ver la señal en HD directamente en Telegram:"
-            )
-
-            channel_kb = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "📺 VER EN VIVO (Abrir Reproductor)",
-                            "url": target_url
-                        }
-                    ],
-                    [
-                        {
-                            "text": "📋 Ver Agenda Completa de Hoy",
-                            "url": "https://elasdelfutbol-production.up.railway.app"
-                        }
-                    ]
-                ]
-            }
-
-            res = send_msg(target_channel, post_text, reply_markup=channel_kb)
-            if res and res.get("ok"):
-                send_msg(chat_id, f"✅ <b>Mensaje con botón interactivo publicado exitosamente en {target_channel}</b>")
-            else:
-                err_desc = res.get("description", "Error desconocido") if res else "No se pudo conectar"
-                send_msg(chat_id, f"❌ <b>Error al publicar en {target_channel}:</b> <code>{html.escape(err_desc)}</code>\n\n💡 <i>Asegúrate de haber añadido al bot como administrador en el canal con permiso para publicar mensajes.</i>")
+            send_msg(chat_id, help_text)
 
         elif text.startswith("/buscar") or text.startswith("/search"):
             parts = text.split(maxsplit=1)
@@ -1357,7 +1238,6 @@ def main():
     print("=" * 65)
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)
-    setup_menu_button()
     print("Iniciando polling de Telegram...")
     offset = 0
 
