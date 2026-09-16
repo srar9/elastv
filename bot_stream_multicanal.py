@@ -635,7 +635,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
-        f"🛡️ <b>Filtros de Señal:</b> Activos (Marca de Agua 'El Ciro' en toda la pantalla + Micro-Pitch A/V)\n"
+        f"🛡️ <b>Filtros de Señal:</b> Activos (Marca 'El Ciro' en esquina + Micro-Pitch A/V)\n"
         f"⚡ <b>Rendimiento:</b> Ultra-Fluido Zero B-Frames (0% Tirones / 100% Suave)\n"
         f"🌐 <b>Servidor:</b> ElCiro Nativo\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
