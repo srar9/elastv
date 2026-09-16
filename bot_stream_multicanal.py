@@ -417,11 +417,21 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
     if headers:
         cmd.extend(["-headers", headers])
 
+    vf_filter = (
+        "crop=in_w*0.96:in_h*0.96:(in_w-out_w)/2:(in_h-out_h)/2,"
+        "scale=1280:720,"
+        "setsar=1,"
+        "eq=contrast=1.03:brightness=0.01:saturation=1.04,"
+        "drawbox=x=w-160:y=18:w=140:h=42:color=black@0.75:t=fill"
+    )
+    af_filter = "asetrate=48000*1.02,aresample=48000,atempo=1/1.02,aresample=async=1"
+
     cmd.extend([
         "-re",
         "-i", source_url,
         "-copyts",
         "-start_at_zero",
+        "-vf", vf_filter,
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
@@ -437,7 +447,7 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
         "-keyint_min", "60",
         "-sc_threshold", "0",
         "-pix_fmt", "yuv420p",
-        "-af", "aresample=async=1",
+        "-af", af_filter,
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "48000",
@@ -590,6 +600,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
+        f"🛡️ <b>Filtros de Señal:</b> Activos (Encuadre Perimetral, Color Tuning & Micro-Pitch A/V)\n"
         f"⚡ <b>Rendimiento:</b> Ultra-Fluido Zero B-Frames (0% Tirones / 100% Suave)\n"
         f"🌐 <b>Servidor:</b> ElCiro Nativo\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
