@@ -3,9 +3,6 @@
 {% block title %}En Vivo: {{ channel.name }} - ElCiro{% endblock %}
 
 {% block content %}
-<!-- Clappr Video Player para transmisión nativa sin publicidad -->
-<script src="https://cdn.jsdelivr.net/npm/@clappr/player@0.8/dist/clappr.min.js"></script>
-
 <div class="space-y-4">
 
     <!-- BARRA SUPERIOR: NAVEGACIÓN Y CANAL -->
@@ -44,14 +41,11 @@
     <!-- CONTENEDOR DEL REPRODUCTOR (16:9 CINEMATIC RESPONSIVE) -->
     <div class="w-full">
         <div id="playerWrapper" class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08]">
-            {% if stream_url %}
-            <!-- REPRODUCTOR NATIVO 100% LIMPIO (CERO PUBLICIDAD / CERO REDIRECCIONES) -->
-            <div id="cleanPlayer" class="w-full h-full"></div>
-            {% elif iframe_url %}
-            <!-- REPRODUCTOR EMBED SANITIZADO SIN POPUPS NI VENTANAS EXTERNAS -->
+            {% if iframe_url %}
+            <!-- REPRODUCTOR OFICIAL CON SANDBOX ANTI-PUBLICIDAD -->
             <iframe 
                 id="liveFrame"
-                src="/embed/{{ channel.slug }}" 
+                src="{{ iframe_url }}" 
                 class="w-full h-full border-0 absolute inset-0 bg-black"
                 sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
@@ -74,12 +68,14 @@
             {% endif %}
         </div>
 
-        <!-- INDICADOR DE PROTECCIÓN ACTIVA -->
+        <!-- INDICADOR DE PROTECCIÓN Y CONTROLES ADICIONALES -->
         <div class="mt-2.5 px-1 flex items-center justify-between text-[11px] text-white/40">
-            <span class="flex items-center gap-1.5 text-emerald-400/90 font-medium">
-                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Protección Anti-Publicidad Activa (0 Popups)
+            <span id="protectionBadge" class="flex items-center gap-1.5 text-emerald-400/90 font-medium">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Bloqueo Anti-Popups Activo
             </span>
-            <span class="text-[10px] text-white/30">ElCiro Stream Engine</span>
+            <button onclick="toggleDirectMode()" id="directModeBtn" class="text-[10px] text-white/40 hover:text-white underline">
+                ¿Problemas al reproducir? Toca aquí
+            </button>
         </div>
     </div>
 
@@ -121,45 +117,42 @@
         } catch(e) {}
     }
 
-    {% if stream_url %}
-    // Iniciar reproductor nativo Clappr con el flujo directo
-    try {
-        const directUrl = "{{ stream_url }}";
-        var player = new Clappr.Player({
-            source: directUrl,
-            parentId: "#cleanPlayer",
-            width: '100%',
-            height: '100%',
-            autoPlay: true,
-            mute: false,
-            playsinline: true,
-            playback: {
-                hlsjsConfig: {
-                    maxBufferSize: 0,
-                    maxBufferLength: 10,
-                    liveSyncDurationCount: 3
-                }
-            }
-        });
-        window.player = player;
-    } catch(e) {
-        console.error("Error al inicializar Clappr:", e);
+    let isDirectMode = false;
+
+    function toggleDirectMode() {
+        triggerHaptic('medium');
+        const frame = document.getElementById('liveFrame');
+        const badge = document.getElementById('protectionBadge');
+        const btn = document.getElementById('directModeBtn');
+
+        if (!frame) return;
+
+        if (!isDirectMode) {
+            // Modo directo sin restricciones de sandbox
+            frame.removeAttribute('sandbox');
+            const current = frame.src;
+            frame.src = '';
+            setTimeout(() => { frame.src = current; }, 100);
+            isDirectMode = true;
+            if (badge) badge.innerHTML = '<i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i> Modo Directo Activado';
+            if (btn) btn.innerText = 'Volver a modo protegido';
+        } else {
+            // Volver a modo protegido
+            frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms');
+            const current = frame.src;
+            frame.src = '';
+            setTimeout(() => { frame.src = current; }, 100);
+            isDirectMode = false;
+            if (badge) badge.innerHTML = '<i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Bloqueo Anti-Popups Activo';
+            if (btn) btn.innerText = '¿Problemas al reproducir? Toca aquí';
+        }
+        lucide.createIcons();
     }
-    {% endif %}
 
     function reloadPlayer() {
         triggerHaptic('medium');
         const icon = document.getElementById('reloadIcon');
         if (icon) icon.classList.add('animate-spin');
-
-        {% if stream_url %}
-        if (window.player) {
-            window.player.load("{{ stream_url }}");
-            window.player.play();
-            setTimeout(() => { if (icon) icon.classList.remove('animate-spin'); }, 500);
-            return;
-        }
-        {% endif %}
 
         const frame = document.getElementById('liveFrame');
         if (frame) {
