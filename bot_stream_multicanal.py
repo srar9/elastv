@@ -417,45 +417,80 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
     if headers:
         cmd.extend(["-headers", headers])
 
-    vf_filter = (
-        "crop=in_w*0.96:in_h*0.96:(in_w-out_w)/2:(in_h-out_h)/2,"
-        "scale=1280:720,"
-        "setsar=1,"
-        "eq=contrast=1.03:brightness=0.01:saturation=1.04,"
-        "drawbox=x=w-175:y=12:w=165:h=55:color=black:t=fill"
-    )
-    af_filter = "asetrate=48000*1.02,aresample=48000,atempo=1/1.02,aresample=async=1"
+    watermark_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watermark.png")
 
-    cmd.extend([
-        "-re",
-        "-i", source_url,
-        "-copyts",
-        "-start_at_zero",
-        "-vf", vf_filter,
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-profile:v", "baseline",
-        "-level", "3.1",
-        "-bf", "0",
-        "-r", "30",
-        "-fps_mode", "cfr",
-        "-b:v", "1200k",
-        "-maxrate", "1500k",
-        "-bufsize", "2500k",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-sc_threshold", "0",
-        "-pix_fmt", "yuv420p",
-        "-af", af_filter,
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "48000",
-        "-ac", "2",
-        "-flvflags", "no_duration_filesize",
-        "-f", "flv",
-        destination
-    ])
+    if os.path.exists(watermark_path):
+        filter_complex = (
+            "[0:v]crop=in_w*0.96:in_h*0.96:(in_w-out_w)/2:(in_h-out_h)/2,scale=1280:720,setsar=1,eq=contrast=1.03:brightness=0.01:saturation=1.04[v0];"
+            "[v0][1:v]overlay=0:0:shortest=1[v_out];"
+            "[0:a]asetrate=48000*1.02,aresample=48000,atempo=1/1.02,aresample=async=1[a_out]"
+        )
+        cmd.extend([
+            "-re",
+            "-i", source_url,
+            "-loop", "1",
+            "-i", watermark_path,
+            "-copyts",
+            "-start_at_zero",
+            "-filter_complex", filter_complex,
+            "-map", "[v_out]",
+            "-map", "[a_out]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "zerolatency",
+            "-profile:v", "baseline",
+            "-level", "3.1",
+            "-bf", "0",
+            "-r", "30",
+            "-fps_mode", "cfr",
+            "-b:v", "1200k",
+            "-maxrate", "1500k",
+            "-bufsize", "2500k",
+            "-g", "60",
+            "-keyint_min", "60",
+            "-sc_threshold", "0",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "48000",
+            "-ac", "2",
+            "-flvflags", "no_duration_filesize",
+            "-f", "flv",
+            destination
+        ])
+    else:
+        vf_filter = "crop=in_w*0.96:in_h*0.96:(in_w-out_w)/2:(in_h-out_h)/2,scale=1280:720,setsar=1,eq=contrast=1.03:brightness=0.01:saturation=1.04"
+        af_filter = "asetrate=48000*1.02,aresample=48000,atempo=1/1.02,aresample=async=1"
+        cmd.extend([
+            "-re",
+            "-i", source_url,
+            "-copyts",
+            "-start_at_zero",
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "zerolatency",
+            "-profile:v", "baseline",
+            "-level", "3.1",
+            "-bf", "0",
+            "-r", "30",
+            "-fps_mode", "cfr",
+            "-b:v", "1200k",
+            "-maxrate", "1500k",
+            "-bufsize", "2500k",
+            "-g", "60",
+            "-keyint_min", "60",
+            "-sc_threshold", "0",
+            "-pix_fmt", "yuv420p",
+            "-af", af_filter,
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "48000",
+            "-ac", "2",
+            "-flvflags", "no_duration_filesize",
+            "-f", "flv",
+            destination
+        ])
 
     log_file = f"/tmp/stream_{stream_id}.log" if os.name != 'nt' else f"stream_{stream_id}.log"
     out_f = open(log_file, "w", encoding="utf-8", errors="ignore")
@@ -600,7 +635,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
     return True, (
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
-        f"🛡️ <b>Filtros de Señal:</b> Activos (Encuadre Perimetral, Color Tuning & Micro-Pitch A/V)\n"
+        f"🛡️ <b>Filtros de Señal:</b> Activos (Marca de Agua 'El Ciro' en toda la pantalla + Micro-Pitch A/V)\n"
         f"⚡ <b>Rendimiento:</b> Ultra-Fluido Zero B-Frames (0% Tirones / 100% Suave)\n"
         f"🌐 <b>Servidor:</b> ElCiro Nativo\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
