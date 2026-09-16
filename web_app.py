@@ -8,6 +8,8 @@ import html
 import requests
 from flask import Flask, render_template, request, jsonify, abort
 
+from bot_stream_multicanal import resolve_tarjetaroja_stream as resolve_tr_engine
+
 app = Flask(__name__)
 
 # ==============================================================================
@@ -186,30 +188,15 @@ def resolve_tarjetaroja_stream(channel_slug):
         if now - cached["timestamp"] < 90:
             return cached["data"]
 
-    page_url = f"https://tarjetaroja.my/stream/{clean_slug}"
-    try:
-        r_page = requests.get(page_url, headers=HEADERS_BASE, timeout=8)
-        if r_page.status_code != 200:
-            return None
-
-        m_if = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', r_page.text, re.IGNORECASE)
-        if not m_if:
-            return None
-
-        iframe_url = m_if.group(1)
-        if iframe_url.startswith("//"):
-            iframe_url = "https:" + iframe_url
-
-        data = {
-            "slug": clean_slug,
-            "page_url": page_url,
-            "iframe_url": iframe_url
-        }
-        STREAM_RESOLVER_CACHE[clean_slug] = {"timestamp": now, "data": data}
-        return data
-    except Exception as e:
-        print(f"Error resolving stream for {clean_slug}:", e)
-        return None
+    stream_url, iframe_ref, status_info = resolve_tr_engine(clean_slug)
+    data = {
+        "slug": clean_slug,
+        "stream_url": stream_url,
+        "iframe_url": iframe_ref or f"https://tarjetaroja.my/stream/{clean_slug}",
+        "status": status_info
+    }
+    STREAM_RESOLVER_CACHE[clean_slug] = {"timestamp": now, "data": data}
+    return data
 
 def get_unique_channels():
     seen = set()
@@ -266,7 +253,8 @@ def player_view(slug):
         }
 
     stream_data = resolve_tarjetaroja_stream(clean_slug)
-    iframe_url = stream_data["iframe_url"] if stream_data else None
+    stream_url = stream_data.get("stream_url") if stream_data else None
+    iframe_url = stream_data.get("iframe_url") if stream_data else None
 
     # Canales recomendados para el menú inferior
     all_unique = get_unique_channels()
@@ -275,10 +263,65 @@ def player_view(slug):
     return render_template(
         "player.html",
         channel=channel_info,
+        stream_url=stream_url,
         iframe_url=iframe_url,
         recommended=recommended,
         active_page="player"
     )
+
+@app.route("/embed/<slug>")
+def embed_view(slug):
+    """
+    Proxy que purifica completamente los iframes eliminando cualquier script
+    de publicidad (aclib, llvpn, luugy, popunders, redirecciones forzadas).
+    """
+    clean_slug = slug.strip().lower().replace("_", "-")
+    stream_data = resolve_tarjetaroja_stream(clean_slug)
+    iframe_url = stream_data.get("iframe_url") if stream_data else None
+    if not iframe_url:
+        return "Canal no disponible", 404
+
+    try:
+        headers = dict(HEADERS_BASE)
+        headers["Referer"] = f"https://tarjetaroja.my/stream/{clean_slug}"
+        r = requests.get(iframe_url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return "Error al cargar la señal de origen", 502
+
+        html_content = r.text
+
+        # 1. Eliminar scripts publicitarios conocidos (aclib, llvpn, luugy, popunders)
+        html_content = re.sub(r'<script[^>]*src=["\'][^"\']*(?:aclib|llvpn|luugy|adcash|popunder|onclick|track)[^"\']*["\'][^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script[^>]*>.*?aclib\.runPop.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script[^>]*>.*?(?:11545073|11645073|11918478).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+
+        # 2. Desactivar detección de sandbox de la señal original
+        html_content = html_content.replace('.hasAttribute("sandbox")', '.hasAttribute("nosandbox")')
+        html_content = html_content.replace("hasAttribute('sandbox')", "hasAttribute('nosandbox')")
+
+        # 3. Inyectar anulador de popups en el encabezado
+        anti_pop_script = """
+        <script>
+        (function() {
+            window.open = function() { console.log('Bloqueado intento de popup'); return null; };
+            window.alert = function() {};
+            window.confirm = function() { return false; };
+            window.prompt = function() { return null; };
+        })();
+        </script>
+        """
+        if "<head>" in html_content:
+            html_content = html_content.replace("<head>", f"<head>{anti_pop_script}")
+        else:
+            html_content = f"{anti_pop_script}{html_content}"
+
+        response = app.make_response(html_content)
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+    except Exception as e:
+        print(f"Error en embed_view para {clean_slug}:", e)
+        return "Error al procesar la señal limpia", 500
 
 # ==============================================================================
 # API REST JSON
