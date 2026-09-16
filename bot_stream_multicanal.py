@@ -267,7 +267,7 @@ def resolve_channel_input(raw_input):
     if "sport" in clean and "br" in clean:
         return "sporttvbr1", "Sport TV 1 BR"
 
-    return clean.replace(" ", "-"), f"Canal Tarjeta Roja [{clean}]"
+    return clean.replace(" ", "-"), f"Canal ElASdelfutbol [{clean}]"
 
 # ==============================================================================
 # RESOLVEDOR UNIVERSAL DE STREAM DE TARJETA ROJA (100% NATIVO Y ELÁSTICO)
@@ -462,7 +462,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
     source_url, headers_str, channel_name, resolved_slug, ok = resolve_stream_source(clean_channel_input)
     if not ok or not source_url:
         return False, (
-            f"❌ No se pudo conectar a la señal de <b>{html.escape(clean_channel_input)}</b> en Tarjeta Roja.\n\n"
+            f"❌ No se pudo conectar a la señal de <b>{html.escape(clean_channel_input)}</b> en ElASdelfutbol.\n\n"
             "💡 Usa <code>/partidos</code> para ver los eventos de hoy o <code>/canales</code> para el directorio completo."
         )
 
@@ -591,7 +591,7 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
         f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
         f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
         f"⚡ <b>Rendimiento:</b> Ultra-Fluido Zero B-Frames (0% Tirones / 100% Suave)\n"
-        f"🌐 <b>Servidor:</b> Tarjeta Roja Nativo (https://tarjetaroja.my/)\n"
+        f"🌐 <b>Servidor:</b> ElASdelfutbol Nativo\n"
         f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
         f"📡 <b>Pantallas Activas:</b> {active_count} simultáneas en emisión\n"
         f"⏱️ <b>Sincronización Audio/Video:</b> 100% Automática (Cero Desfase)\n\n"
@@ -896,7 +896,7 @@ def get_live_matches_agenda(curr_key):
             if agenda_blocks:
                 messages = []
                 header = (
-                    "📅 <b>AGENDA DE PARTIDOS DE HOY (100% TARJETA ROJA - EN VIVO)</b>\n"
+                    "📅 <b>AGENDA DE PARTIDOS DE HOY (ElASdelfutbol - EN VIVO)</b>\n"
                     "<i>Señales exactas verificadas canal por canal en directo:</i>\n\n"
                 )
                 current_msg = header
@@ -923,7 +923,7 @@ def get_live_matches_agenda(curr_key):
 # ==============================================================================
 def get_sports_menu_messages(curr_key):
     msg1 = (
-        "🏆 <b>DIRECTORIO DE CANALES (100% TARJETA ROJA - EN VIVO) [Parte 1/3]</b>\n\n"
+        "🏆 <b>DIRECTORIO DE CANALES (ElASdelfutbol - EN VIVO) [Parte 1/3]</b>\n\n"
         "✨ <b>SUITE DISNEY+ EVENTOS (FÚTBOL & CHAMPIONS EN DIRECTO):</b>\n"
         f"• 🏆 <b>Disney 1 HD:</b> <code>/stream disney-1 {curr_key}</code>\n"
         f"• 🏆 <b>Disney 2 HD:</b> <code>/stream disney-2 {curr_key}</code>\n"
@@ -948,7 +948,7 @@ def get_sports_menu_messages(curr_key):
     )
 
     msg2 = (
-        "🏆 <b>DIRECTORIO DE CANALES (TARJETA ROJA) [Parte 2/3]</b>\n\n"
+        "🏆 <b>DIRECTORIO DE CANALES (ElASdelfutbol) [Parte 2/3]</b>\n\n"
         "🦊 <b>SUITE FOX SPORTS:</b>\n"
         f"• ⚽ <b>Fox Sports 1 Argentina:</b> <code>/stream fox1ar {curr_key}</code>\n"
         f"• ⚽ <b>Fox Sports 2 Argentina:</b> <code>/stream fox2ar {curr_key}</code>\n"
@@ -974,7 +974,7 @@ def get_sports_menu_messages(curr_key):
     )
 
     msg3 = (
-        "🏆 <b>DIRECTORIO DE CANALES (TARJETA ROJA) [Parte 3/3]</b>\n\n"
+        "🏆 <b>DIRECTORIO DE CANALES (ElASdelfutbol) [Parte 3/3]</b>\n\n"
         "🇨🇴 <b>DIRECTV SPORTS & WIN SPORTS & BRASIL & ARGENTINA:</b>\n"
         f"• ⚽ <b>DSports 1 HD:</b> <code>/stream dsports {curr_key}</code>\n"
         f"• ⚽ <b>DSports 2 HD:</b> <code>/stream dsports2 {curr_key}</code>\n"
@@ -1010,7 +1010,7 @@ def search_tarjetaroja(query, curr_key):
             match_found.append(ev)
 
     if match_found:
-        results.append("⚽ <b>PARTIDOS ENCONTRADOS EN TARJETA ROJA:</b>\n")
+        results.append("⚽ <b>PARTIDOS ENCONTRADOS EN ElASdelfutbol:</b>\n")
         for ev in match_found[:6]:
             time_str = f"[{ev['time']}] " if ev['time'] else ""
             block = f"🏆 <b>{time_str}{html.escape(ev['competition'])}: {html.escape(ev['match'])}</b>\n"
@@ -1028,7 +1028,7 @@ def search_tarjetaroja(query, curr_key):
             channels_found.append(info)
 
     if channels_found:
-        results.append("📺 <b>CANALES ENCONTRADOS EN TARJETA ROJA:</b>\n")
+        results.append("📺 <b>CANALES ENCONTRADOS EN ElASdelfutbol:</b>\n")
         for ch in channels_found[:12]:
             results.append(f"• 📺 <b>{html.escape(ch['name'])}:</b>\n  <code>/stream {ch['slug']} {curr_key}</code>\n")
 
@@ -1068,12 +1068,12 @@ def handle_message(msg):
 
         if text.startswith("/start") or text.startswith("/ayuda"):
             help_text = (
-                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - FLUIDEZ TOTAL)</b>\n\n"
+                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (ElASdelfutbol - FLUIDEZ TOTAL)</b>\n\n"
                 "⚡ <b>Rendimiento:</b> Modo Ultra-Fluido Zero B-Frames (0% Lag / 0% Tirones en Telegram).\n\n"
                 "📋 <b>COMANDOS PRINCIPALES:</b>\n"
                 "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
-                "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de Tarjeta Roja\n"
-                "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal en Tarjeta Roja\n"
+                "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de ElASdelfutbol\n"
+                "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal en ElASdelfutbol\n"
                 "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur\n"
                 "• <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión\n"
                 "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
@@ -1090,7 +1090,7 @@ def handle_message(msg):
                 send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/buscar &lt;partido o canal&gt;</code>\nEjemplo: <code>/buscar barcelona</code> o <code>/buscar max</code> o <code>/buscar vix</code>")
                 return
             q = parts[1].strip()
-            send_msg(chat_id, f"🔍 <b>Buscando en Tarjeta Roja para '{q}'...</b>")
+            send_msg(chat_id, f"🔍 <b>Buscando en ElASdelfutbol para '{q}'...</b>")
             res_text = search_tarjetaroja(q, curr_key)
             send_msg(chat_id, res_text)
 
@@ -1101,7 +1101,7 @@ def handle_message(msg):
 
         elif text.startswith("/espn"):
             espn_msg = (
-                "📺 <b>SUITE COMPLETA ESPN SUR (24/7 EN DIRECTO - TARJETA ROJA):</b>\n\n"
+                "📺 <b>SUITE COMPLETA ESPN SUR (24/7 EN DIRECTO - ElASdelfutbol):</b>\n\n"
                 "🇦🇷 <b>SEÑALES ESPN SUR (HD / FHD):</b>\n"
                 f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
                 f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
@@ -1115,7 +1115,7 @@ def handle_message(msg):
             send_msg(chat_id, espn_msg)
 
         elif text.startswith("/partidos") or text.startswith("/agenda") or text.startswith("/hoy"):
-            send_msg(chat_id, "⏳ <b>Cargando partidos de hoy desde Tarjeta Roja...</b>")
+            send_msg(chat_id, "⏳ <b>Cargando partidos de hoy desde ElASdelfutbol...</b>")
             msgs = get_live_matches_agenda(curr_key)
             for m in msgs:
                 send_msg(chat_id, m)
@@ -1156,7 +1156,7 @@ def handle_message(msg):
             ch_input = " ".join(tokens).strip()
 
             slot_notice = f" en Pantalla #{requested_slot}" if requested_slot else ""
-            send_msg(chat_id, f"🔄 <b>Conectando a Tarjeta Roja para {ch_input}{slot_notice}...</b>")
+            send_msg(chat_id, f"🔄 <b>Conectando a ElASdelfutbol para {ch_input}{slot_notice}...</b>")
             ok, response_msg = start_single_stream(ch_input, s_key, chat_id, requested_slot=requested_slot)
             send_msg(chat_id, response_msg)
 
@@ -1236,7 +1236,7 @@ def handle_message(msg):
 
 def main():
     print("=" * 65)
-    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (TARJETA ROJA - FLUIDEZ TOTAL)")
+    print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElASdelfutbol - FLUIDEZ TOTAL)")
     print("=" * 65)
     print("Iniciando polling de Telegram...")
     offset = 0

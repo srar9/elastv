@@ -302,12 +302,12 @@ def api_stream(slug):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "service": "tarjetaroja-web-live"})
+    return jsonify({"status": "ok", "service": "elasdelfutbol-web-live"})
 
 # ==============================================================================
 # INICIO DEL SERVIDOR LOCAL O RAILWAY
 # ==============================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"Iniciando Tarjeta Roja Web en http://0.0.0.0:{port}")
+    print(f"Iniciando ElASdelfutbol Web en http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
