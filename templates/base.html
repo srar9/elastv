@@ -2,8 +2,9 @@
 <html lang="es" class="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}ElCiro - Partidos y Canales en Vivo{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>{% block title %}ElCiro - En Vivo{% endblock %}</title>
+
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -12,109 +13,227 @@
             theme: {
                 extend: {
                     colors: {
-                        brand: {
-                            red: '#e50914',
-                            dark: '#0f172a',
-                            card: '#1e293b',
-                            border: '#334155'
+                        apple: {
+                            bg: '#000000',
+                            surface: '#121214',
+                            card: 'rgba(255, 255, 255, 0.04)',
+                            cardHover: 'rgba(255, 255, 255, 0.08)',
+                            border: 'rgba(255, 255, 255, 0.08)',
+                            borderHighlight: 'rgba(255, 255, 255, 0.16)',
+                            red: '#ff3b30',
+                            redGlow: 'rgba(255, 59, 48, 0.25)',
+                            textSecondary: '#86868b',
+                            textTertiary: '#6e6e73'
                         }
+                    },
+                    fontFamily: {
+                        apple: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', 'system-ui', 'Helvetica Neue', 'sans-serif']
                     }
                 }
             }
         }
     </script>
+
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body {
-            background-color: #0b0f19;
-            color: #f1f5f9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        }
-        .stream-card:hover {
-            transform: translateY(-2px);
-            transition: all 0.2s ease-in-out;
-        }
-        .pulse-live {
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.1); }
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #e50914; }
-    </style>
+
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script>
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
+
+    <style>
+        :root {
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
         }
-    </script>
+
+        body {
+            background-color: #000000;
+            color: #f5f5f7;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow-x: hidden;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Apple Glassmorphism */
+        .apple-glass {
+            background: rgba(18, 18, 20, 0.72);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .apple-glass-card {
+            background: rgba(255, 255, 255, 0.035);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .apple-glass-card:active {
+            transform: scale(0.985);
+            background: rgba(255, 255, 255, 0.06);
+            transition: transform 0.12s ease-out, background 0.12s ease-out;
+        }
+
+        .apple-pill {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .apple-pill-active {
+            background: #ffffff;
+            color: #000000;
+            border: 1px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.15);
+        }
+
+        /* Smooth Hide Scrollbars but allow scroll */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Pulsing Dot */
+        .pulse-apple {
+            animation: pulseApple 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
+        @keyframes pulseApple {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+    </style>
 </head>
-<body class="min-h-screen flex flex-col justify-between selection:bg-red-600 selection:text-white">
+<body class="min-h-screen flex flex-col justify-between selection:bg-red-600/30 selection:text-white">
 
-    <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
-    <header class="sticky top-0 z-50 bg-[#0f172a]/95 backdrop-blur border-b border-slate-800">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
-                
-                <!-- LOGO -->
-                <div class="flex items-center space-x-3">
-                    <a href="/" class="flex items-center space-x-2 text-xl font-black tracking-tight">
-                        <span class="bg-red-600 text-white px-2.5 py-1 rounded-lg shadow-lg shadow-red-600/30 flex items-center gap-1.5">
-                            <i data-lucide="tv" class="w-5 h-5"></i> EN VIVO
-                        </span>
-                        <span class="text-white font-extrabold text-xl">El<span class="text-red-500">Ciro</span></span>
-                    </a>
+    <!-- BARRA SUPERIOR MINIMALISTA APPLE -->
+    <header class="sticky top-0 z-40 bg-black/80 backdrop-blur-2xl border-b border-white/[0.06] pt-[env(safe-area-inset-top,0px)]">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            
+            <!-- LOGO APPLE-STYLE -->
+            <a href="/" class="flex items-center space-x-2 group">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-red-600 to-red-500 flex items-center justify-center shadow-lg shadow-red-600/20 group-active:scale-95 transition-transform">
+                    <i data-lucide="play" class="w-4 h-4 text-white fill-white ml-0.5"></i>
                 </div>
-
-                <!-- ENLACES PRINCIPALES -->
-                <nav class="flex items-center space-x-2 sm:space-x-4">
-                    <a href="/" class="px-3 py-2 rounded-lg text-sm font-semibold transition {% if active_page == 'home' %}bg-slate-800 text-red-400 border border-slate-700{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %} flex items-center gap-1.5">
-                        <i data-lucide="calendar" class="w-4 h-4"></i> Partidos de Hoy
-                    </a>
-                    <a href="/canales" class="px-3 py-2 rounded-lg text-sm font-semibold transition {% if active_page == 'channels' %}bg-slate-800 text-red-400 border border-slate-700{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %} flex items-center gap-1.5">
-                        <i data-lucide="layout-grid" class="w-4 h-4"></i> Canales 24/7
-                    </a>
-                </nav>
-
-                <!-- ESTADO EN VIVO -->
-                <div class="hidden md:flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-slate-900 border border-emerald-900/60 text-emerald-400">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
-                    <span>Señales 100% Operativas</span>
+                <div class="flex flex-col">
+                    <span class="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
+                        ElCiro <span class="text-xs font-semibold text-red-500 px-1.5 py-0.2 rounded-md bg-red-500/10 border border-red-500/20">LIVE</span>
+                    </span>
                 </div>
+            </a>
 
+            <!-- ESTADO Y REFRESCAR -->
+            <div class="flex items-center space-x-2">
+                <button onclick="window.location.reload()" class="w-8 h-8 rounded-full apple-pill flex items-center justify-center text-white/80 hover:text-white active:scale-90 transition">
+                    <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                </button>
+                <div class="hidden sm:flex items-center space-x-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-apple"></span>
+                    <span>Señal Activa</span>
+                </div>
             </div>
+
         </div>
     </header>
 
     <!-- CONTENIDO PRINCIPAL -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-grow w-full">
+    <main class="max-w-4xl mx-auto px-3 sm:px-6 py-4 flex-grow w-full pb-28">
         {% block content %}{% endblock %}
     </main>
 
-    <!-- PIE DE PÁGINA -->
-    <footer class="bg-slate-950 border-t border-slate-800/80 py-6 text-center text-slate-400 text-xs mt-12">
-        <div class="max-w-7xl mx-auto px-4 space-y-2">
-            <div class="flex items-center justify-center gap-2">
-                <span class="font-bold text-slate-200">ElCiro Live</span>
-                <span>•</span>
-                <span>Transmisiones deportivas en directo de alta calidad</span>
-            </div>
-            <p class="text-slate-500">
-                Este sitio es un reproductor e indexador de enlaces públicos. Todos los derechos reservados a sus respectivos propietarios.
-            </p>
-        </div>
-    </footer>
+    <!-- BARRA DE NAVEGACIÓN INFERIOR ESTILO iOS / APPLE TAB BAR -->
+    <nav class="fixed bottom-0 left-0 right-0 z-50 bg-black/85 backdrop-blur-2xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom,8px)] pt-2">
+        <div class="max-w-md mx-auto px-6 flex items-center justify-around h-12">
+            
+            <!-- TAB 1: PARTIDOS -->
+            <a href="/" class="flex flex-col items-center justify-center space-y-0.5 group w-16 {% if active_page == 'home' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
+                <i data-lucide="calendar" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
+                <span class="text-[10px] tracking-tight">Partidos</span>
+            </a>
 
+            <!-- TAB 2: CANALES -->
+            <a href="/canales" class="flex flex-col items-center justify-center space-y-0.5 group w-16 {% if active_page == 'channels' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
+                <i data-lucide="tv" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
+                <span class="text-[10px] tracking-tight">Canales</span>
+            </a>
+
+            <!-- TAB 3: BUSCADOR -->
+            <button onclick="focusSearch()" class="flex flex-col items-center justify-center space-y-0.5 group w-16 text-white/40 hover:text-white/80 transition">
+                <i data-lucide="search" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
+                <span class="text-[10px] tracking-tight">Buscar</span>
+            </button>
+
+        </div>
+    </nav>
+
+    <!-- SCRIPTS DE TELEGRAM WEBAPP & LUCIDE -->
     <script>
+        // Inicializar iconos
         lucide.createIcons();
+
+        // Haptic Feedback Helper
+        function triggerHaptic(type = 'light') {
+            try {
+                if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                    window.Telegram.WebApp.HapticFeedback.impactOccurred(type);
+                }
+            } catch(e) {}
+        }
+
+        // Global touch feedback on clickable elements
+        document.addEventListener('click', (e) => {
+            const el = e.target.closest('a, button, [role="button"]');
+            if (el) triggerHaptic('light');
+        });
+
+        // Configuración oficial Telegram WebApp
+        if (window.Telegram && window.Telegram.WebApp) {
+            const tg = window.Telegram.WebApp;
+            tg.ready();
+            tg.expand();
+
+            try {
+                tg.setHeaderColor('#000000');
+                tg.setBackgroundColor('#000000');
+            } catch(e) {}
+
+            // Soporte para botón Volver nativo de Telegram
+            if (tg.BackButton) {
+                const isHome = window.location.pathname === '/' || window.location.pathname === '';
+                if (!isHome) {
+                    tg.BackButton.show();
+                    tg.BackButton.onClick(() => {
+                        triggerHaptic('medium');
+                        if (window.history.length > 1) {
+                            window.history.back();
+                        } else {
+                            window.location.href = '/';
+                        }
+                    });
+                } else {
+                    tg.BackButton.hide();
+                }
+            }
+        }
+
+        // Helper de búsqueda desde la barra de pestañas
+        function focusSearch() {
+            triggerHaptic('light');
+            const searchInput = document.getElementById('matchSearch') || document.getElementById('channelSearch');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                window.location.href = '/';
+            }
+        }
     </script>
     {% block scripts %}{% endblock %}
 </body>
