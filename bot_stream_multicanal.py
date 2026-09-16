@@ -422,7 +422,7 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
         "scale=1280:720,"
         "setsar=1,"
         "eq=contrast=1.03:brightness=0.01:saturation=1.04,"
-        "drawbox=x=w-160:y=18:w=140:h=42:color=black@0.75:t=fill"
+        "drawbox=x=w-175:y=12:w=165:h=55:color=black:t=fill"
     )
     af_filter = "asetrate=48000*1.02,aresample=48000,atempo=1/1.02,aresample=async=1"
 
