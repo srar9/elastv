@@ -6,7 +6,8 @@ import re
 import json
 import html
 import requests
-from flask import Flask, render_template, request, jsonify, abort
+import urllib.parse
+from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
 from bot_stream_multicanal import resolve_tarjetaroja_stream as resolve_tr_engine
 
@@ -255,6 +256,7 @@ def player_view(slug):
     stream_data = resolve_tarjetaroja_stream(clean_slug)
     stream_url = stream_data.get("stream_url") if stream_data else None
     iframe_url = stream_data.get("iframe_url") if stream_data else None
+    clean_stream_src = f"/stream/live/{clean_slug}/master.m3u8" if stream_url else None
 
     # Canales recomendados para el menú inferior
     all_unique = get_unique_channels()
@@ -263,11 +265,116 @@ def player_view(slug):
     return render_template(
         "player.html",
         channel=channel_info,
-        stream_url=stream_url,
+        clean_stream_src=clean_stream_src,
         iframe_url=iframe_url,
         recommended=recommended,
         active_page="player"
     )
+
+# ==============================================================================
+# PROXY HLS UNIVERSAL (0 PUBLICIDAD / 0 POPUPS / CARGA INSTANTÁNEA EN MÓVILES)
+# ==============================================================================
+@app.route("/stream/live/<slug>/master.m3u8")
+def hls_proxy_master(slug):
+    clean_slug = slug.strip().lower().replace("_", "-")
+    stream_data = resolve_tarjetaroja_stream(clean_slug)
+    stream_url = stream_data.get("stream_url")
+    if not stream_url:
+        return abort(404)
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
+        }
+        r = requests.get(stream_url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return abort(r.status_code)
+
+        base_url = stream_url.split("?")[0].rsplit("/", 1)[0]
+        lines = []
+        for line in r.text.splitlines():
+            l = line.strip()
+            if l and not l.startswith("#"):
+                sub_target = base_url + "/" + l if not l.startswith("http") else l
+                encoded = urllib.parse.quote_plus(sub_target)
+                lines.append(f"/stream/live/{clean_slug}/sub.m3u8?target={encoded}")
+            else:
+                lines.append(line)
+
+        resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    except Exception as e:
+        print(f"Error in master proxy for {clean_slug}:", e)
+        return abort(500)
+
+@app.route("/stream/live/<slug>/sub.m3u8")
+def hls_proxy_sub(slug):
+    clean_slug = slug.strip().lower().replace("_", "-")
+    target = request.args.get("target")
+    if not target:
+        return abort(400)
+
+    try:
+        stream_data = resolve_tarjetaroja_stream(clean_slug)
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
+        }
+        r = requests.get(target, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return abort(r.status_code)
+
+        base_url = target.split("?")[0].rsplit("/", 1)[0]
+        lines = []
+        for line in r.text.splitlines():
+            l = line.strip()
+            if l and not l.startswith("#"):
+                chunk_target = base_url + "/" + l if not l.startswith("http") else l
+                encoded = urllib.parse.quote_plus(chunk_target)
+                lines.append(f"/stream/live/{clean_slug}/segment.ts?target={encoded}")
+            else:
+                lines.append(line)
+
+        resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    except Exception as e:
+        print(f"Error in sub proxy for {clean_slug}:", e)
+        return abort(500)
+
+@app.route("/stream/live/<slug>/segment.ts")
+def hls_proxy_segment(slug):
+    clean_slug = slug.strip().lower().replace("_", "-")
+    target = request.args.get("target")
+    if not target:
+        return abort(400)
+
+    try:
+        stream_data = resolve_tarjetaroja_stream(clean_slug)
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
+        }
+        r = requests.get(target, headers=headers, stream=True, timeout=10)
+        if r.status_code != 200:
+            return abort(r.status_code)
+
+        def generate():
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+
+        resp = Response(stream_with_context(generate()), content_type="video/mp2t")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Cache-Control"] = "public, max-age=60"
+        return resp
+    except Exception as e:
+        print(f"Error in segment proxy for {clean_slug}:", e)
+        return abort(500)
 
 @app.route("/embed/<slug>")
 def embed_view(slug):

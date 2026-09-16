@@ -3,6 +3,9 @@
 {% block title %}En Vivo: {{ channel.name }} - ElCiro{% endblock %}
 
 {% block content %}
+<!-- HLS.js CDN para navegadores Android y PC (iOS usa reproducción nativa) -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
 <div class="space-y-4">
 
     <!-- BARRA SUPERIOR: NAVEGACIÓN Y CANAL -->
@@ -40,14 +43,23 @@
 
     <!-- CONTENEDOR DEL REPRODUCTOR (16:9 CINEMATIC RESPONSIVE) -->
     <div class="w-full">
-        <div id="playerWrapper" class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08]">
-            {% if iframe_url %}
-            <!-- REPRODUCTOR OFICIAL CON SANDBOX ANTI-PUBLICIDAD -->
+        <div id="playerWrapper" class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08] flex items-center justify-center">
+            {% if clean_stream_src %}
+            <!-- REPRODUCTOR NATIVO 100% LIMPIO (CERO PUBLICIDAD / CERO REDIRECCIONES / CERO SANDBOX) -->
+            <video 
+                id="liveVideo"
+                class="w-full h-full object-contain bg-black"
+                controls
+                autoplay
+                playsinline
+                webkit-playsinline
+            ></video>
+            {% elif iframe_url %}
+            <!-- REPRODUCTOR DIRECTO OFICIAL SIN BLOQUEO ANTI-SANDBOX -->
             <iframe 
                 id="liveFrame"
                 src="{{ iframe_url }}" 
                 class="w-full h-full border-0 absolute inset-0 bg-black"
-                sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowfullscreen
                 referrerpolicy="no-referrer"
@@ -68,14 +80,12 @@
             {% endif %}
         </div>
 
-        <!-- INDICADOR DE PROTECCIÓN Y CONTROLES ADICIONALES -->
+        <!-- INDICADOR DE PROTECCIÓN ACTIVA -->
         <div class="mt-2.5 px-1 flex items-center justify-between text-[11px] text-white/40">
-            <span id="protectionBadge" class="flex items-center gap-1.5 text-emerald-400/90 font-medium">
-                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Bloqueo Anti-Popups Activo
+            <span class="flex items-center gap-1.5 text-emerald-400/90 font-medium">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Modo Directo Limpio (0 Publicidad / 0 Popups)
             </span>
-            <button onclick="toggleDirectMode()" id="directModeBtn" class="text-[10px] text-white/40 hover:text-white underline">
-                ¿Problemas al reproducir? Toca aquí
-            </button>
+            <span class="text-[10px] text-white/30">ElCiro Stream Engine</span>
         </div>
     </div>
 
@@ -117,42 +127,52 @@
         } catch(e) {}
     }
 
-    let isDirectMode = false;
+    {% if clean_stream_src %}
+    // Inicializar reproductor de video nativo con soporte Apple HLS
+    const video = document.getElementById('liveVideo');
+    const streamSource = "{{ clean_stream_src }}";
 
-    function toggleDirectMode() {
-        triggerHaptic('medium');
-        const frame = document.getElementById('liveFrame');
-        const badge = document.getElementById('protectionBadge');
-        const btn = document.getElementById('directModeBtn');
-
-        if (!frame) return;
-
-        if (!isDirectMode) {
-            // Modo directo sin restricciones de sandbox
-            frame.removeAttribute('sandbox');
-            const current = frame.src;
-            frame.src = '';
-            setTimeout(() => { frame.src = current; }, 100);
-            isDirectMode = true;
-            if (badge) badge.innerHTML = '<i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i> Modo Directo Activado';
-            if (btn) btn.innerText = 'Volver a modo protegido';
-        } else {
-            // Volver a modo protegido
-            frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms');
-            const current = frame.src;
-            frame.src = '';
-            setTimeout(() => { frame.src = current; }, 100);
-            isDirectMode = false;
-            if (badge) badge.innerHTML = '<i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Bloqueo Anti-Popups Activo';
-            if (btn) btn.innerText = '¿Problemas al reproducir? Toca aquí';
+    if (video) {
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Nativo para iPhone (Safari / WebKit de Telegram)
+            video.src = streamSource;
+            video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
+        } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            // Android, PC, Chrome
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 20
+            });
+            hls.loadSource(streamSource);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
+            });
+            window.hls = hls;
         }
-        lucide.createIcons();
     }
+    {% endif %}
 
     function reloadPlayer() {
         triggerHaptic('medium');
         const icon = document.getElementById('reloadIcon');
         if (icon) icon.classList.add('animate-spin');
+
+        const video = document.getElementById('liveVideo');
+        if (video) {
+            {% if clean_stream_src %}
+            if (window.hls) {
+                window.hls.loadSource("{{ clean_stream_src }}");
+                video.play().catch(() => {});
+            } else {
+                video.src = "{{ clean_stream_src }}";
+                video.play().catch(() => {});
+            }
+            setTimeout(() => { if (icon) icon.classList.remove('animate-spin'); }, 600);
+            return;
+            {% endif %}
+        }
 
         const frame = document.getElementById('liveFrame');
         if (frame) {
@@ -169,6 +189,18 @@
 
     function toggleFullscreen() {
         triggerHaptic('medium');
+        const video = document.getElementById('liveVideo');
+        if (video) {
+            if (video.requestFullscreen) {
+                video.requestFullscreen();
+            } else if (video.webkitRequestFullscreen) {
+                video.webkitRequestFullscreen();
+            } else if (video.webkitEnterFullscreen) {
+                video.webkitEnterFullscreen();
+            }
+            return;
+        }
+
         const wrapper = document.getElementById('playerWrapper');
         if (!document.fullscreenElement) {
             if (wrapper.requestFullscreen) {
