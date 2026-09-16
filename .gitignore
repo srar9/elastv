@@ -5,6 +5,7 @@ __pycache__/
 
 # Configuración y claves locales
 config_stream.json
+stream_config.json
 channels.json
 channels_local.json
 
@@ -48,8 +49,8 @@ fast_*.py
 full_*.py
 spanish_sports.py
 start_*.py
-*.html
-*.js
+*.mp4
+!templates/*.html
 *.log
 
 
