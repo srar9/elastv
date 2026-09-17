@@ -62,14 +62,46 @@ def setup_menu_button():
         print("Error configurando menu_button en bot_miniapp:", e)
 
 def normalize_channel_search(query):
-    q = query.strip().lower()
-    q = re.sub(r'[^a-z0-9]', '', q)
+    raw = query.strip()
+    q = raw.lower()
+    q_clean = re.sub(r'[^a-z0-9]', '', q)
+    if not q_clean:
+        return "espn", "ESPN 1 HD"
+
+    # 1. Búsqueda exacta en claves o slugs de TR_CHANNELS
+    for key, info in TR_CHANNELS.items():
+        k_clean = re.sub(r'[^a-z0-9]', '', key)
+        slug_clean = re.sub(r'[^a-z0-9]', '', info.get("slug", ""))
+        if q_clean == k_clean or q_clean == slug_clean:
+            return info.get("slug", key), info.get("name", key)
+
+    # 2. Detección específica Apple TV MLS (ej. "appletv1", "apple 1", "apple tv 2", "appletv")
+    m_apple = re.search(r'apple(?:tv)?(\d+)', q_clean)
+    if m_apple:
+        num = m_apple.group(1)
+        return f"appletv{num}", f"Apple TV {num} HD (MLS)"
+    if "appletv" in q_clean or "apple" in q_clean:
+        return "appletv1", "Apple TV 1 HD (MLS)"
+
+    # 3. Detección específica Disney+ (ej. "disney 1", "disney-7")
+    m_disney = re.search(r'disney(\d+)', q_clean)
+    if m_disney:
+        num = int(m_disney.group(1))
+        slug_d = f"disney-{num}" if num <= 7 else f"disney{num}"
+        return slug_d, f"Disney+ {num} HD"
+
+    # 4. Coincidencia parcial en nombres de canales de TR_CHANNELS
     for key, info in TR_CHANNELS.items():
         k_clean = re.sub(r'[^a-z0-9]', '', key)
         slug_clean = re.sub(r'[^a-z0-9]', '', info.get("slug", ""))
         name_clean = re.sub(r'[^a-z0-9]', '', info.get("name", ""))
-        if q in k_clean or q in slug_clean or q in name_clean:
+        if q_clean in k_clean or q_clean in slug_clean or q_clean in name_clean:
             return info.get("slug", key), info.get("name", key)
+
+    # 5. Si es un slug válido alfanumérico directo (ej. "canal5mx", "tudn"), respetarlo directamente
+    if re.match(r'^[a-z0-9_\-]+$', raw.lower()):
+        return raw.lower(), raw.upper()
+
     return "espn", "ESPN 1 HD"
 
 def handle_message(msg):
@@ -305,17 +337,20 @@ def handle_message(msg):
 
             target_slug = "espn"
             match_title = "⚽ Transmisión Deportiva en Vivo"
+            channel_label = "Señal en Directo"
 
             if extra:
                 if "|" in extra:
                     m_parts = extra.split("|", 1)
                     match_title = f"⚽ <b>{m_parts[0].strip()}</b>"
-                    slug_c, _ = normalize_channel_search(m_parts[1].strip())
+                    slug_c, ch_name = normalize_channel_search(m_parts[1].strip())
                     target_slug = slug_c
+                    channel_label = ch_name
                 else:
                     slug_c, clean_name = normalize_channel_search(extra)
+                    target_slug = slug_c
+                    channel_label = clean_name
                     if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
-                        target_slug = slug_c
                         match_title = f"📺 <b>{clean_name} en Directo</b>"
                     else:
                         match_title = f"⚽ <b>{extra}</b>"
@@ -324,6 +359,7 @@ def handle_message(msg):
 
             post_text = (
                 f"{match_title}\n\n"
+                f"📡 <b>Canal:</b> {channel_label}\n"
                 "🔥 <b>¡TRANSMISIÓN EN VIVO SIN CORTES!</b>\n"
                 "Toca el botón interactivo de abajo para ver la señal en HD directamente en Telegram:"
             )
@@ -335,7 +371,7 @@ def handle_message(msg):
                 "inline_keyboard": [
                     [
                         {
-                            "text": "📺 VER EN VIVO (Abrir Reproductor)",
+                            "text": f"📺 VER EN VIVO ({channel_label})",
                             "url": target_url
                         }
                     ],

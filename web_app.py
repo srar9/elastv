@@ -91,6 +91,8 @@ TR_CHANNELS = {
     # Otros Canales Internacionales
     "tyc": {"slug": "tyc", "name": "TyC Sports HD", "category": "otros"},
     "tudn": {"slug": "tudn", "name": "TUDN Deportes", "category": "otros"},
+    "canal5mx": {"slug": "canal5mx", "name": "Canal 5 MX", "category": "otros"},
+    "azteca7": {"slug": "azteca7", "name": "Azteca 7 HD", "category": "otros"},
     "goltv": {"slug": "goltv", "name": "GolTV HD", "category": "otros"},
     "dazn1": {"slug": "dazn1", "name": "DAZN 1 España", "category": "otros"},
     "dazn2": {"slug": "dazn2", "name": "DAZN 2 España", "category": "otros"},
@@ -99,12 +101,29 @@ TR_CHANNELS = {
     "movistar-campeones": {"slug": "movistar-campeones", "name": "Movistar Liga de Campeones", "category": "otros"},
 }
 
+# Inyectar señales Disney+ Eventos adicionales (8 al 15)
+for i in range(8, 16):
+    slug_d = f"disney{i}"
+    name_d = f"Disney+ {i} HD"
+    TR_CHANNELS[slug_d] = {"slug": slug_d, "name": name_d, "category": "disney"}
+    TR_CHANNELS[f"disney-{i}"] = {"slug": slug_d, "name": name_d, "category": "disney"}
+
+# Inyectar señales Apple TV MLS (appletv1 a appletv15)
+for i in range(1, 16):
+    slug_a = f"appletv{i}"
+    name_a = f"Apple TV {i} HD (MLS)"
+    TR_CHANNELS[slug_a] = {"slug": slug_a, "name": name_a, "category": "appletv"}
+    TR_CHANNELS[f"apple{i}"] = {"slug": slug_a, "name": name_a, "category": "appletv"}
+    TR_CHANNELS[f"appletv-{i}"] = {"slug": slug_a, "name": name_a, "category": "appletv"}
+    TR_CHANNELS[f"apple-{i}"] = {"slug": slug_a, "name": name_a, "category": "appletv"}
+
 CATEGORIES_META = {
     "espn": {"name": "ESPN Suite", "icon": "tv"},
     "fox": {"name": "Fox Sports", "icon": "trophy"},
     "max": {"name": "MAX (Champions)", "icon": "sparkles"},
     "dsports": {"name": "DIRECTV Sports", "icon": "radio"},
     "disney": {"name": "Disney+ / Star+", "icon": "star"},
+    "appletv": {"name": "Apple TV (MLS)", "icon": "film"},
     "vix": {"name": "ViX+ Deportes", "icon": "zap"},
     "otros": {"name": "Internacionales", "icon": "globe"},
 }
