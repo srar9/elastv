@@ -98,10 +98,14 @@
                             <i data-lucide="clock" class="w-3 h-3 text-amber-400"></i> {{ ev.time }}
                         </span>
                         {% endif %}
-                        {% if ev.viewers_short %}
-                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20">
+                        {% if ev.viewers > 0 %}
+                        <span class="viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20" data-match="{{ ev.match | lower }}">
                             <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span>
-                            <i data-lucide="eye" class="w-3 h-3"></i> {{ ev.viewers_short }}
+                            <i data-lucide="eye" class="w-3 h-3"></i> <span class="viewer-count-val">{{ ev.viewers_short }}</span>
+                        </span>
+                        {% else %}
+                        <span class="viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.04] text-white/40 border border-white/[0.06]" data-match="{{ ev.match | lower }}">
+                            <i data-lucide="eye" class="w-3 h-3 text-white/30"></i> <span class="viewer-count-val">0</span>
                         </span>
                         {% endif %}
                     </div>
@@ -225,5 +229,38 @@
             noRes.classList.toggle('hidden', visible > 0);
         }
     }
+
+    // Actualización de espectadores en tiempo real para nuestra web
+    setInterval(async () => {
+        try {
+            const res = await fetch('/api/events/viewers');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ok && Array.isArray(data.events)) {
+                    data.events.forEach(ev => {
+                        const mName = (ev.match || '').toLowerCase();
+                        document.querySelectorAll('.viewer-badge-match').forEach(badge => {
+                            if (badge.getAttribute('data-match') === mName) {
+                                const valEl = badge.querySelector('.viewer-count-val');
+                                const pulseEl = badge.querySelector('.pulse-apple');
+                                if (valEl) valEl.textContent = ev.short || '0';
+                                if (ev.viewers > 0) {
+                                    badge.className = 'viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20';
+                                    if (!pulseEl) {
+                                        const dot = document.createElement('span');
+                                        dot.className = 'w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple';
+                                        badge.insertBefore(dot, badge.firstChild);
+                                    }
+                                } else {
+                                    badge.className = 'viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.04] text-white/40 border border-white/[0.06]';
+                                    if (pulseEl) pulseEl.remove();
+                                }
+                            }
+                        });
+                    });
+                }
+            }
+        } catch(e) {}
+    }, 15000);
 </script>
 {% endblock %}

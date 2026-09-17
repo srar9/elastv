@@ -140,39 +140,61 @@ SCHEDULE_CACHE = {
 STREAM_RESOLVER_CACHE = {}
 
 # ==============================================================================
-# SISTEMA DE CONTADOR DE ESPECTADORES EN VIVO (MÉTRICAS DINÁMICAS REALISTAS)
+# SISTEMA DE CONTADOR DE ESPECTADORES REALES EN VIVO (EXCLUSIVO DE NUESTRA WEB)
 # ==============================================================================
-LIVE_VIEWERS_CACHE = {}
+REAL_CHANNEL_VIEWERS = {}
+
+def extract_client_id():
+    """Identifica al visitante real mediante su vid (localStorage) o hash IP + UA."""
+    vid = request.args.get("vid")
+    if vid and len(vid) < 64:
+        return vid
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.remote_addr or "127.0.0.1"
+    ua = request.headers.get("User-Agent", "")[:50]
+    return hashlib.md5(f"{client_ip}-{ua}".encode()).hexdigest()[:16]
+
+def record_channel_viewer(slug, client_id):
+    """Registra la presencia activa de un usuario en un canal de nuestra web."""
+    if not slug or not client_id:
+        return
+    clean = str(slug).strip().lower().replace("_", "-")
+    if clean not in REAL_CHANNEL_VIEWERS:
+        REAL_CHANNEL_VIEWERS[clean] = {}
+    REAL_CHANNEL_VIEWERS[clean][client_id] = time.time()
 
 def get_channel_viewers(slug):
-    now = time.time()
+    """Devuelve la cantidad exacta de usuarios reales viendo este canal en los últimos 45 segundos."""
+    if not slug:
+        return 0
     clean = str(slug).strip().lower().replace("_", "-")
-    entry = LIVE_VIEWERS_CACHE.get(clean)
-    
-    # Refrescar cada 15 segundos
-    if not entry or (now - entry.get("last_updated", 0) > 15):
-        # Generar número determinista por canal + ventana de 2 minutos
-        seed = int(hashlib.md5(f"{clean}-{int(now // 120)}".encode()).hexdigest()[:6], 16)
-        
-        # Categorización por relevancia
-        is_top = any(kw in clean for kw in ["apple", "espn", "max", "disney", "vix", "fox"])
-        if is_top:
-            base_min = 1450
-            base_max = 3980
-        else:
-            base_min = 450
-            base_max = 1750
+    now = time.time()
+    viewers_map = REAL_CHANNEL_VIEWERS.get(clean, {})
+    # Mantener solo clientes con heartbeat en los últimos 45 segundos
+    active = {cid: ts for cid, ts in viewers_map.items() if (now - ts) <= 45}
+    REAL_CHANNEL_VIEWERS[clean] = active
+    return len(active)
 
-        viewers = base_min + (seed % (base_max - base_min))
-        # Pequeña variación de segundos actuales (-12 a +15)
-        jitter = (int(now) % 28) - 12
-        viewers = max(60, viewers + jitter)
-        
-        LIVE_VIEWERS_CACHE[clean] = {
-            "viewers": viewers,
-            "last_updated": now
-        }
-    return LIVE_VIEWERS_CACHE[clean]["viewers"]
+def get_match_viewers(channels):
+    """
+    Calcula los espectadores únicos reales en nuestra web para un partido
+    a través de cualquiera de sus señales asignadas.
+    """
+    now = time.time()
+    unique_clients = set()
+    for ch in channels:
+        slug = ch.get("slug") if isinstance(ch, dict) else str(ch)
+        if not slug:
+            continue
+        clean = slug.strip().lower().replace("_", "-")
+        viewers_map = REAL_CHANNEL_VIEWERS.get(clean, {})
+        for cid, ts in viewers_map.items():
+            if (now - ts) <= 45:
+                unique_clients.add(cid)
+    return len(unique_clients)
 
 def format_viewers(count):
     if count >= 1000:
@@ -226,16 +248,11 @@ def fetch_tarjetaroja_schedule():
                     channels.append({"name": cname.strip(), "slug": slug})
 
             if match_name:
-                best_slug = channels[0]["slug"] if channels else "espn"
-                ev_viewers = get_channel_viewers(best_slug)
                 events.append({
                     "time": ev_time,
                     "competition": ev_comp,
                     "match": match_name,
-                    "channels": channels,
-                    "viewers": ev_viewers,
-                    "viewers_formatted": f"{ev_viewers:,}".replace(",", "."),
-                    "viewers_short": format_viewers(ev_viewers)
+                    "channels": channels
                 })
 
         SCHEDULE_CACHE["timestamp"] = now
@@ -282,7 +299,15 @@ def get_unique_channels():
 # ==============================================================================
 @app.route("/")
 def index():
-    events = fetch_tarjetaroja_schedule()
+    raw_events = fetch_tarjetaroja_schedule()
+    events = []
+    for ev in raw_events:
+        ev_copy = dict(ev)
+        v_count = get_match_viewers(ev.get("channels", []))
+        ev_copy["viewers"] = v_count
+        ev_copy["viewers_formatted"] = f"{v_count:,}".replace(",", ".")
+        ev_copy["viewers_short"] = format_viewers(v_count)
+        events.append(ev_copy)
     return render_template("index.html", events=events, active_page="home")
 
 @app.route("/canales")
@@ -309,6 +334,9 @@ def channels_view():
 @app.route("/ver/<slug>")
 def player_view(slug):
     clean_slug = slug.strip().lower().replace("_", "-")
+    client_id = extract_client_id()
+    record_channel_viewer(clean_slug, client_id)
+
     channel_info = TR_CHANNELS.get(clean_slug)
     if not channel_info:
         # Fallback slug directo
@@ -327,7 +355,7 @@ def player_view(slug):
     all_unique = get_unique_channels()
     recommended = [c for c in all_unique if c["slug"] != clean_slug][:12]
 
-    # Calcular espectadores en vivo
+    # Calcular espectadores en vivo reales de nuestra web
     v_count = get_channel_viewers(clean_slug)
     formatted_v = f"{v_count:,}".replace(",", ".")
     short_v = format_viewers(v_count)
@@ -347,6 +375,8 @@ def player_view(slug):
 @app.route("/api/viewers/<slug>")
 def api_viewers(slug):
     clean_slug = slug.strip().lower().replace("_", "-")
+    client_id = extract_client_id()
+    record_channel_viewer(clean_slug, client_id)
     v_count = get_channel_viewers(clean_slug)
     return jsonify({
         "ok": True,
@@ -355,6 +385,19 @@ def api_viewers(slug):
         "formatted": f"{v_count:,}".replace(",", "."),
         "short": format_viewers(v_count)
     })
+
+@app.route("/api/events/viewers")
+def api_events_viewers():
+    raw_events = fetch_tarjetaroja_schedule()
+    data = []
+    for ev in raw_events:
+        v_count = get_match_viewers(ev.get("channels", []))
+        data.append({
+            "match": ev.get("match", ""),
+            "viewers": v_count,
+            "short": format_viewers(v_count)
+        })
+    return jsonify({"ok": True, "events": data})
 
 # ==============================================================================
 # PROXY HLS UNIVERSAL (0 PUBLICIDAD / 0 POPUPS / CARGA INSTANTÁNEA EN MÓVILES)

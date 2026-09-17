@@ -238,20 +238,36 @@
         }
     }
 
-    // Actualización dinámica de espectadores en vivo
-    setInterval(async () => {
+    // Identificador único del espectador en este dispositivo / navegador
+    function getViewerId() {
+        let vid = localStorage.getItem('elas_vid');
+        if (!vid) {
+            vid = 'v_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+            localStorage.setItem('elas_vid', vid);
+        }
+        return vid;
+    }
+
+    async function sendViewerHeartbeat() {
         try {
-            const res = await fetch('/api/viewers/{{ channel.slug }}');
+            const vid = getViewerId();
+            const res = await fetch('/api/viewers/{{ channel.slug }}?vid=' + encodeURIComponent(vid));
             if (res.ok) {
                 const data = await res.json();
-                if (data.ok && data.formatted) {
+                if (data.ok) {
                     const elTop = document.getElementById('liveViewerCountTop');
                     const elBottom = document.getElementById('liveViewerCountBottom');
-                    if (elTop) elTop.textContent = data.formatted;
-                    if (elBottom) elBottom.textContent = data.formatted;
+                    const countStr = data.formatted || (data.viewers !== undefined ? data.viewers.toString() : '1');
+                    if (elTop) elTop.textContent = countStr;
+                    if (elBottom) elBottom.textContent = countStr;
                 }
             }
         } catch(e) {}
-    }, 12000);
+    }
+
+    // Registrar presencia real de inmediato al cargar el reproductor
+    sendViewerHeartbeat();
+    // Mantener la sesión activa cada 10 segundos
+    setInterval(sendViewerHeartbeat, 10000);
 </script>
 {% endblock %}
