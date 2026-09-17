@@ -44,6 +44,24 @@ def send_msg(chat_id, text, reply_markup=None):
         print(f"Error enviando mensaje a Telegram ({chat_id}):", e)
         return {"ok": False, "description": str(e)}
 
+def send_photo(chat_id, photo, caption=None, reply_markup=None):
+    try:
+        url = f"{API_URL}/sendPhoto"
+        payload = {
+            "chat_id": chat_id,
+            "photo": photo,
+            "parse_mode": "HTML"
+        }
+        if caption:
+            payload["caption"] = caption
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        r = requests.post(url, json=payload, timeout=15)
+        return r.json()
+    except Exception as e:
+        print(f"Error enviando foto a Telegram ({chat_id}):", e)
+        return {"ok": False, "description": str(e)}
+
 def setup_menu_button():
     try:
         url = f"{API_URL}/setChatMenuButton"
@@ -107,9 +125,17 @@ def normalize_channel_search(query):
 def handle_message(msg):
     chat_id = msg.get("chat", {}).get("id")
     user_id = msg.get("from", {}).get("id")
-    text = msg.get("text", "").strip()
+    raw_text = msg.get("text") or msg.get("caption") or ""
+    text = raw_text.strip()
     if not chat_id or not text:
         return
+
+    # Extraer foto adjunta o de mensaje respondido
+    attached_photo = None
+    if msg.get("photo"):
+        attached_photo = msg.get("photo")[-1].get("file_id")
+    elif msg.get("reply_to_message", {}).get("photo"):
+        attached_photo = msg.get("reply_to_message", {}).get("photo")[-1].get("file_id")
 
     try:
         if text.startswith("/start") or text.startswith("/ayuda") or text.startswith("/help"):
@@ -339,16 +365,17 @@ def handle_message(msg):
             parts = text.split(maxsplit=2)
             if len(parts) < 2:
                 help_post = (
-                    "📢 <b>PUBLICAR ENLACES PROTEGIDOS EN TU CANAL DE TELEGRAM:</b>\n\n"
-                    "Usa este comando para publicar anuncios con botones interactivos que tus seguidores abrirán directamente en Telegram.\n"
-                    "<b>¡100% Inmune a bloqueos y cierres por copyright!</b>\n\n"
-                    "<b>Formato:</b>\n"
-                    "<code>/post &lt;@canal&gt; [canal o partido | canal]</code>\n\n"
-                    "<b>Ejemplos:</b>\n"
-                    "• <code>/post @mi_canal</code> $\\rightarrow$ Publica la cartelera de hoy con botón directo\n"
-                    "• <code>/post @mi_canal espn</code> $\\rightarrow$ Publica botón directo a ESPN 1 HD\n"
-                    "• <code>/post @mi_canal Real Madrid vs Barcelona | espn</code> $\\rightarrow$ Publica partido específico\n\n"
-                    "⚠️ <i>Nota: Asegúrate de añadir a este bot como Administrador en tu canal para que pueda publicar.</i>"
+                    "📢 <b>PUBLICAR ENLACES PROTEGIDOS CON O SIN IMAGEN EN TU CANAL:</b>\n\n"
+                    "<b>Modos de uso:</b>\n"
+                    "1️⃣ <b>Con Imagen Adjunta (Recomendado):</b> Toca el clip 📎 en Telegram, selecciona tu foto y en el comentario escribe:\n"
+                    "<code>/post @mi_canal Real Madrid vs Barcelona | espn</code>\n\n"
+                    "2️⃣ <b>Respondiendo a una foto:</b> Responde a cualquier foto en este chat con:\n"
+                    "<code>/post @mi_canal Inter Miami vs Cruz Azul | appletv1</code>\n\n"
+                    "3️⃣ <b>Con Enlace Web de Imagen:</b>\n"
+                    "<code>/post @mi_canal Partido | canal | https://i.imgur.com/foto.jpg</code>\n\n"
+                    "4️⃣ <b>Solo Texto:</b>\n"
+                    "<code>/post @mi_canal Inter Miami vs Cruz Azul | appletv1</code>\n\n"
+                    "⚠️ <i>Nota: Asegúrate de añadir a @Elciroas_bot como Administrador en tu canal.</i>"
                 )
                 send_msg(chat_id, help_post)
                 return
@@ -356,25 +383,44 @@ def handle_message(msg):
             target_channel = parts[1].strip()
             extra = parts[2].strip() if len(parts) > 2 else ""
 
+            target_photo = attached_photo
             target_slug = "espn"
             match_title = "⚽ Transmisión Deportiva en Vivo"
             channel_label = "Señal en Directo"
 
             if extra:
                 if "|" in extra:
-                    m_parts = extra.split("|", 1)
-                    match_title = f"⚽ <b>{m_parts[0].strip()}</b>"
-                    slug_c, ch_name = normalize_channel_search(m_parts[1].strip())
-                    target_slug = slug_c
-                    channel_label = ch_name
+                    raw_segments = [s.strip() for s in extra.split("|") if s.strip()]
+                    clean_segments = []
+                    for seg in raw_segments:
+                        if seg.startswith(("http://", "https://")) and not target_photo:
+                            target_photo = seg
+                        else:
+                            clean_segments.append(seg)
+
+                    if len(clean_segments) >= 1:
+                        match_title = f"⚽ <b>{clean_segments[0]}</b>"
+                    if len(clean_segments) >= 2:
+                        slug_c, ch_name = normalize_channel_search(clean_segments[1])
+                        target_slug = slug_c
+                        channel_label = ch_name
+                    elif len(clean_segments) == 1:
+                        slug_c, ch_name = normalize_channel_search(clean_segments[0])
+                        if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
+                            target_slug = slug_c
+                            channel_label = ch_name
+                            match_title = f"📺 <b>{ch_name} en Directo</b>"
                 else:
-                    slug_c, clean_name = normalize_channel_search(extra)
-                    target_slug = slug_c
-                    channel_label = clean_name
-                    if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
-                        match_title = f"📺 <b>{clean_name} en Directo</b>"
+                    if extra.startswith(("http://", "https://")) and not target_photo:
+                        target_photo = extra
                     else:
-                        match_title = f"⚽ <b>{extra}</b>"
+                        slug_c, clean_name = normalize_channel_search(extra)
+                        target_slug = slug_c
+                        channel_label = clean_name
+                        if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
+                            match_title = f"📺 <b>{clean_name} en Directo</b>"
+                        else:
+                            match_title = f"⚽ <b>{extra}</b>"
 
             target_url = f"{WEB_APP_BASE_URL}/ver/{target_slug}" if extra else WEB_APP_BASE_URL
 
@@ -412,9 +458,17 @@ def handle_message(msg):
                 ]
             }
 
-            res = send_msg(target_channel, post_text, reply_markup=channel_kb)
+            if target_photo:
+                res = send_photo(target_channel, target_photo, caption=post_text, reply_markup=channel_kb)
+                if not res or not res.get("ok"):
+                    # Fallback a texto si la foto falla
+                    res = send_msg(target_channel, post_text, reply_markup=channel_kb)
+            else:
+                res = send_msg(target_channel, post_text, reply_markup=channel_kb)
+
             if res and res.get("ok"):
-                send_msg(chat_id, f"✅ <b>Mensaje con botón interactivo publicado exitosamente en {target_channel}</b>")
+                photo_notice = " con imagen" if target_photo else ""
+                send_msg(chat_id, f"✅ <b>Anuncio{photo_notice} publicado exitosamente en {target_channel}</b>")
             else:
                 err_desc = res.get("description", "Error desconocido") if res else "No se pudo conectar"
                 send_msg(
