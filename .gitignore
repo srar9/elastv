@@ -55,3 +55,5 @@ start_*.py
 .env
 .env.*
 .env.local
+*.db
+*.db-*

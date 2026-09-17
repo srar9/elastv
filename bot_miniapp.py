@@ -7,6 +7,7 @@ import re
 import html
 import threading
 import requests
+import urllib.parse
 
 try:
     if hasattr(sys.stdout, 'reconfigure'):
@@ -16,7 +17,7 @@ try:
 except Exception:
     pass
 
-from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule
+from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule, slugify_match
 
 TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN", "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_MINIAPP_BOT_TOKEN}"
@@ -223,7 +224,13 @@ def handle_message(msg):
                 # Agregar botón para los primeros 4 partidos más destacados
                 if i < 4:
                     best_slug = ev_channels[0]["slug"] if ev_channels else ""
-                    match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}" if best_slug else WEB_APP_BASE_URL
+                    m_slug = ev.get("match_slug") or slugify_match(ev_match)
+                    if best_slug and m_slug:
+                        match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}?m={m_slug}&title={urllib.parse.quote(ev_match)}"
+                    elif best_slug:
+                        match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}"
+                    else:
+                        match_url = WEB_APP_BASE_URL
                     inline_buttons.append([
                         {
                             "text": f"▶️ {ev_match[:28]}",
@@ -387,6 +394,7 @@ def handle_message(msg):
             target_slug = "espn"
             match_title = "⚽ Transmisión Deportiva en Vivo"
             channel_label = "Señal en Directo"
+            clean_match_title = ""
 
             if extra:
                 if "|" in extra:
@@ -399,7 +407,8 @@ def handle_message(msg):
                             clean_segments.append(seg)
 
                     if len(clean_segments) >= 1:
-                        match_title = f"⚽ <b>{clean_segments[0]}</b>"
+                        clean_match_title = clean_segments[0]
+                        match_title = f"⚽ <b>{clean_match_title}</b>"
                     if len(clean_segments) >= 2:
                         slug_c, ch_name = normalize_channel_search(clean_segments[1])
                         target_slug = slug_c
@@ -409,6 +418,7 @@ def handle_message(msg):
                         if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
                             target_slug = slug_c
                             channel_label = ch_name
+                            clean_match_title = ch_name
                             match_title = f"📺 <b>{ch_name} en Directo</b>"
                 else:
                     if extra.startswith(("http://", "https://")) and not target_photo:
@@ -418,11 +428,19 @@ def handle_message(msg):
                         target_slug = slug_c
                         channel_label = clean_name
                         if slug_c in [c.get("slug") for c in TR_CHANNELS.values()]:
+                            clean_match_title = clean_name
                             match_title = f"📺 <b>{clean_name} en Directo</b>"
                         else:
+                            clean_match_title = extra
                             match_title = f"⚽ <b>{extra}</b>"
 
-            target_url = f"{WEB_APP_BASE_URL}/ver/{target_slug}" if extra else WEB_APP_BASE_URL
+            m_slug = slugify_match(clean_match_title)
+            if extra and m_slug:
+                target_url = f"{WEB_APP_BASE_URL}/ver/{target_slug}?m={m_slug}&title={urllib.parse.quote(clean_match_title)}"
+            elif extra:
+                target_url = f"{WEB_APP_BASE_URL}/ver/{target_slug}"
+            else:
+                target_url = WEB_APP_BASE_URL
 
             post_text = (
                 f"{match_title}\n\n"
