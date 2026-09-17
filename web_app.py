@@ -182,17 +182,27 @@ def slugify_match(match_title):
     return s
 
 def extract_client_id():
-    """Identifica al visitante real mediante su vid (localStorage/memoria) o hash IP + UA."""
-    vid = request.args.get("vid")
-    if vid and len(vid) < 64:
-        return vid
+    """Identifica unívocamente al visitante mediante cookie persistente, vid o hash IP+UA determinista."""
+    # 1. Cookie única del visitante (la misma en la página web y en todas las peticiones AJAX)
+    vid = request.cookies.get("elas_vid")
+    if vid and 4 < len(vid) < 64:
+        return vid.strip()
+    # 2. Parámetro explícito por vid
+    param_vid = request.args.get("vid")
+    if param_vid and 4 < len(param_vid) < 64:
+        return param_vid.strip()
+    # 3. Hash determinista de IP + User Agent
     forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-    else:
-        client_ip = request.remote_addr or "127.0.0.1"
-    ua = request.headers.get("User-Agent", "")[:50]
-    return hashlib.md5(f"{client_ip}-{ua}".encode()).hexdigest()[:16]
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.remote_addr or "127.0.0.1")
+    ua = request.headers.get("User-Agent", "")[:40]
+    return "u_" + hashlib.md5(f"{ip}-{ua}".encode()).hexdigest()[:14]
+
+@app.after_request
+def ensure_viewer_cookie(response):
+    if not request.cookies.get("elas_vid"):
+        vid = extract_client_id()
+        response.set_cookie("elas_vid", vid, max_age=30*86400, samesite="Lax", path="/")
+    return response
 
 def record_match_viewer(match_id, client_id):
     """Registra o renueva el heartbeat de un usuario para un partido específico."""
@@ -212,31 +222,54 @@ def record_match_viewer(match_id, client_id):
     except Exception as e:
         print("Error registrando espectador en SQLite:", e)
 
-def get_match_viewers_count(match_id):
-    """
-    Devuelve la cantidad exacta de usuarios reales de nuestra web viendo este partido
-    en una ventana activa de 120 segundos (anti-throttling en móviles y Telegram).
-    """
-    if not match_id:
-        return 0
-    clean_m = str(match_id).strip().lower()
-    cutoff = time.time() - 120
+def get_all_active_viewers_map():
+    """Devuelve un diccionario { match_id: set(client_ids) } con todos los espectadores activos."""
+    cutoff = time.time() - 90
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute(
-                "SELECT COUNT(DISTINCT client_id) FROM match_viewers WHERE match_id = ? AND last_seen >= ?",
-                (clean_m, cutoff)
-            )
-            row = cur.fetchone()
-            return row[0] if row else 0
+            cur.execute("SELECT match_id, client_id FROM match_viewers WHERE last_seen >= ?", (cutoff,))
+            rows = cur.fetchall()
+            mapping = {}
+            for m_id, c_id in rows:
+                if m_id not in mapping:
+                    mapping[m_id] = set()
+                mapping[m_id].add(c_id)
+            return mapping
     except Exception as e:
-        print("Error consultando espectadores en SQLite:", e)
-        return 0
+        print("Error consultando mapa de espectadores activos:", e)
+        return {}
+
+def calculate_event_viewers_from_map(viewers_map, match_slug, channels=None):
+    """Calcula el número exacto de espectadores únicos para un evento considerando match_slug y canales."""
+    keys = set()
+    if match_slug:
+        keys.add(str(match_slug).strip().lower())
+    if channels:
+        for ch in channels:
+            slug = ch.get("slug") if isinstance(ch, dict) else str(ch)
+            if slug:
+                keys.add(slug.strip().lower().replace("_", "-"))
+    unique_clients = set()
+    for k in keys:
+        if k in viewers_map:
+            unique_clients.update(viewers_map[k])
+    return len(unique_clients)
+
+def get_event_viewers_count(match_slug, channels=None):
+    """
+    Devuelve la cantidad exacta de espectadores únicos para este evento.
+    Consulta por match_slug Y por cualquiera de los canales del partido,
+    garantizando que la tarjeta de inicio y el reproductor muestren exactamente el mismo número.
+    """
+    viewers_map = get_all_active_viewers_map()
+    return calculate_event_viewers_from_map(viewers_map, match_slug, channels)
+
+def get_match_viewers_count(match_id):
+    return get_event_viewers_count(match_id)
 
 def get_all_matches_viewers_counts():
-    """Devuelve un diccionario { match_id: count } con todas las métricas en 1 sola consulta ultra-rápida."""
-    cutoff = time.time() - 120
+    cutoff = time.time() - 90
     try:
         with get_db() as conn:
             cur = conn.cursor()
@@ -250,8 +283,7 @@ def get_all_matches_viewers_counts():
         return {}
 
 def get_channel_viewers(slug):
-    """Compatibilidad de respaldo por canal."""
-    return get_match_viewers_count(slug)
+    return get_event_viewers_count(slug)
 
 def format_viewers(count):
     if count >= 1000:
@@ -363,17 +395,13 @@ def get_unique_channels():
 @app.route("/")
 def index():
     raw_events = fetch_tarjetaroja_schedule()
-    all_counts = get_all_matches_viewers_counts()
+    viewers_map = get_all_active_viewers_map()
     events = []
     for ev in raw_events:
         ev_copy = dict(ev)
         m_slug = ev_copy.get("match_slug", "")
-        v_count = all_counts.get(m_slug, 0)
-        if v_count == 0:
-            for ch in ev_copy.get("channels", []):
-                c_slug = ch.get("slug", "")
-                if c_slug in all_counts:
-                    v_count = max(v_count, all_counts[c_slug])
+        channels = ev_copy.get("channels", [])
+        v_count = calculate_event_viewers_from_map(viewers_map, m_slug, channels)
 
         ev_copy["viewers"] = v_count
         ev_copy["viewers_formatted"] = f"{v_count:,}".replace(",", ".")
@@ -419,18 +447,25 @@ def player_view(slug):
 
     match_slug = ""
     match_title = ""
+    event_channels = []
+
+    schedule_events = fetch_tarjetaroja_schedule()
 
     if req_match:
         match_slug = slugify_match(req_match)
         match_title = req_title or req_match.replace("-", " ").title()
+        for ev in schedule_events:
+            if ev.get("match_slug") == match_slug:
+                event_channels = ev.get("channels", [])
+                break
     else:
         # Buscar si este canal tiene un partido en curso en la agenda
-        schedule_events = fetch_tarjetaroja_schedule()
         for ev in schedule_events:
             for ch in ev.get("channels", []):
                 if ch.get("slug") == clean_slug:
                     match_slug = ev.get("match_slug")
                     match_title = ev.get("match")
+                    event_channels = ev.get("channels", [])
                     break
             if match_slug:
                 break
@@ -438,6 +473,9 @@ def player_view(slug):
     if not match_slug:
         match_slug = clean_slug
         match_title = channel_info.get("name", clean_slug.upper())
+
+    if not event_channels:
+        event_channels = [{"slug": clean_slug}]
 
     # Registrar al usuario tanto en el partido como en el canal
     client_id = extract_client_id()
@@ -453,8 +491,8 @@ def player_view(slug):
     all_unique = get_unique_channels()
     recommended = [c for c in all_unique if c["slug"] != clean_slug][:12]
 
-    # Calcular espectadores en vivo reales para ESTE PARTIDO
-    v_count = get_match_viewers_count(match_slug)
+    # Calcular espectadores en vivo reales para ESTE PARTIDO (idéntico a la portada)
+    v_count = get_event_viewers_count(match_slug, event_channels)
     formatted_v = f"{v_count:,}".replace(",", ".")
     short_v = format_viewers(v_count)
 
@@ -478,14 +516,21 @@ def api_viewers(slug):
     req_match = request.args.get("m") or request.args.get("match")
 
     match_slug = ""
+    event_channels = []
+    schedule_events = fetch_tarjetaroja_schedule()
+
     if req_match:
         match_slug = slugify_match(req_match)
+        for ev in schedule_events:
+            if ev.get("match_slug") == match_slug:
+                event_channels = ev.get("channels", [])
+                break
     else:
-        schedule_events = fetch_tarjetaroja_schedule()
         for ev in schedule_events:
             for ch in ev.get("channels", []):
                 if ch.get("slug") == clean_slug:
                     match_slug = ev.get("match_slug")
+                    event_channels = ev.get("channels", [])
                     break
             if match_slug:
                 break
@@ -493,11 +538,14 @@ def api_viewers(slug):
     if not match_slug:
         match_slug = clean_slug
 
+    if not event_channels:
+        event_channels = [{"slug": clean_slug}]
+
     client_id = extract_client_id()
     record_match_viewer(match_slug, client_id)
     record_match_viewer(clean_slug, client_id)
 
-    v_count = get_match_viewers_count(match_slug)
+    v_count = get_event_viewers_count(match_slug, event_channels)
     return jsonify({
         "ok": True,
         "slug": clean_slug,
@@ -510,16 +558,12 @@ def api_viewers(slug):
 @app.route("/api/events/viewers")
 def api_events_viewers():
     raw_events = fetch_tarjetaroja_schedule()
-    all_counts = get_all_matches_viewers_counts()
+    viewers_map = get_all_active_viewers_map()
     data = []
     for ev in raw_events:
         m_slug = ev.get("match_slug", "")
-        v_count = all_counts.get(m_slug, 0)
-        if v_count == 0:
-            for ch in ev.get("channels", []):
-                c_slug = ch.get("slug", "")
-                if c_slug in all_counts:
-                    v_count = max(v_count, all_counts[c_slug])
+        channels = ev.get("channels", [])
+        v_count = calculate_event_viewers_from_map(viewers_map, m_slug, channels)
 
         data.append({
             "match": ev.get("match", ""),

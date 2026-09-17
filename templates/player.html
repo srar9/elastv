@@ -62,7 +62,6 @@
                 autoplay
                 playsinline
                 webkit-playsinline
-                preload="auto"
             ></video>
             {% elif iframe_url %}
             <!-- REPRODUCTOR DIRECTO OFICIAL SIN BLOQUEO ANTI-SANDBOX -->
@@ -158,117 +157,30 @@
     }
 
     {% if clean_stream_src %}
-    // Inicializar reproductor de video con sincronización audio/video reforzada
+    // Inicializar reproductor de video nativo con soporte Apple HLS
     const video = document.getElementById('liveVideo');
     const streamSource = "{{ clean_stream_src }}";
 
-    function initHlsPlayer() {
-        if (!video) return;
-
-        // Limpiar instancia previa si existe
-        if (window.hls) {
-            try { window.hls.destroy(); } catch(e) {}
-            window.hls = null;
-        }
-
-        // Detectar si es iOS (iPhone/iPad) donde MSE no está disponible para HLS
-        const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-        if (typeof Hls !== 'undefined' && Hls.isSupported() && !isAppleMobile) {
-            // Android, PC, Chrome, Edge, Firefox, Telegram WebApp (Motor HLS.js ultra-sincronizado)
+    if (video) {
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Nativo para iPhone (Safari / WebKit de Telegram)
+            video.src = streamSource;
+            video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
+        } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            // Android, PC, Chrome
             const hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: false,          // Desactivado para evitar arrancar al límite sin keyframes de video
-                liveSyncDurationCount: 3,        // Arrancar con 3 segmentos de buffer (garantiza IDR/keyframe)
-                liveMaxLatencyDurationCount: 6,
-                maxBufferHole: 0.5,              // Salto automático ante cualquier hueco en la pista de video
-                nudgeOffset: 0.2,                // Descongelamiento automático de fotogramas
-                nudgeMaxRetry: 8,
-                backBufferLength: 30,
-                maxBufferLength: 30,
-                autoStartLoad: true
+                lowLatencyMode: true,
+                backBufferLength: 20
             });
-
             hls.loadSource(streamSource);
             hls.attachMedia(video);
-
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play().catch(e => {
-                    console.log("Requiere toque para reproducir:", e);
-                });
+                video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
             });
-
-            // Recuperación automática de errores y desincronización A/V
-            hls.on(Hls.Events.ERROR, function(event, data) {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.warn("Recuperando error de red en HLS...");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.warn("Recuperando error de decodificación o sync...");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.warn("Reiniciando fuente HLS...");
-                            hls.loadSource(streamSource);
-                            break;
-                    }
-                } else if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-                    // Si el buffer se atasca: nudging para reactivar el video
-                    if (video && !video.paused) {
-                        video.currentTime += 0.2;
-                    }
-                }
-            });
-
             window.hls = hls;
-
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Nativo para Safari en iPhone/iPad
-            video.src = streamSource;
-            video.addEventListener('loadedmetadata', function() {
-                video.play().catch(() => {});
-            });
-            video.play().catch(() => {});
         }
-
-        // ==============================================================================
-        // WATCHDOG ACTIVO: DETECCIÓN Y CORRECCIÓN AUTOMÁTICA DE AUDIO CON VIDEO CONGELADO
-        // ==============================================================================
-        let initialFixAttempted = false;
-        video.addEventListener('timeupdate', function onTimeCheck() {
-            if (!initialFixAttempted && video.currentTime > 0.8) {
-                // Si el audio está corriendo pero el video aún no tiene ancho/alto renderizado:
-                if (video.videoWidth === 0) {
-                    initialFixAttempted = true;
-                    console.warn("Watchdog: Audio sonando pero video pausado/en negro. Forzando sincronización...");
-                    if (window.hls) {
-                        window.hls.recoverMediaError();
-                    } else {
-                        video.currentTime += 0.2;
-                    }
-                }
-            }
-        });
-
-        // Si el video se queda esperando o atascado mientras reproduce:
-        video.addEventListener('waiting', function() {
-            setTimeout(() => {
-                if (video && !video.paused && video.readyState < 3) {
-                    if (window.hls) {
-                        window.hls.startLoad();
-                    } else {
-                        video.currentTime += 0.1;
-                    }
-                }
-            }, 800);
-        });
     }
-
-    // Iniciar reproductor al cargar la página
-    initHlsPlayer();
     {% endif %}
 
     function reloadPlayer() {
@@ -279,7 +191,13 @@
         const video = document.getElementById('liveVideo');
         if (video) {
             {% if clean_stream_src %}
-            initHlsPlayer();
+            if (window.hls) {
+                window.hls.loadSource("{{ clean_stream_src }}");
+                video.play().catch(() => {});
+            } else {
+                video.src = "{{ clean_stream_src }}";
+                video.play().catch(() => {});
+            }
             setTimeout(() => { if (icon) icon.classList.remove('animate-spin'); }, 600);
             return;
             {% endif %}
@@ -326,15 +244,22 @@
         }
     }
 
-    // Identificador único del espectador en este dispositivo / navegador (con fallback seguro)
+    // Identificador único del espectador en este dispositivo / navegador (con sincronización estricta)
     let memoryVid = null;
     function getViewerId() {
         try {
+            const match = document.cookie.match(/(^|;)\s*elas_vid\s*=\s*([^;]+)/);
+            if (match && match[2] && match[2].trim()) {
+                const cVid = match[2].trim();
+                localStorage.setItem('elas_vid', cVid);
+                return cVid;
+            }
             let vid = localStorage.getItem('elas_vid');
             if (!vid) {
                 vid = 'v_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
                 localStorage.setItem('elas_vid', vid);
             }
+            document.cookie = 'elas_vid=' + vid + '; path=/; max-age=2592000; SameSite=Lax';
             return vid;
         } catch(e) {
             if (!memoryVid) {
