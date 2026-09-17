@@ -631,14 +631,29 @@ def hls_proxy_sub(slug):
 
         base_url = target.split("?")[0].rsplit("/", 1)[0]
         lines = []
+        has_start = False
         for line in r.text.splitlines():
             l = line.strip()
+            if l.startswith("#EXT-X-START"):
+                has_start = True
             if l and not l.startswith("#"):
                 chunk_target = base_url + "/" + l if not l.startswith("http") else l
                 encoded = urllib.parse.quote_plus(chunk_target)
                 lines.append(f"/stream/live/{clean_slug}/segment.ts?target={encoded}")
             else:
                 lines.append(line)
+
+        # Inyectar #EXT-X-START para iniciar en un segmento con fotograma clave (evita video congelado al inicio)
+        seg_count = len([l for l in lines if not l.startswith("#") and l.strip()])
+        if not has_start and seg_count >= 3:
+            new_lines = []
+            inserted = False
+            for line in lines:
+                new_lines.append(line)
+                if not inserted and (line.startswith("#EXT-X-VERSION") or line.startswith("#EXT-X-TARGETDURATION")):
+                    new_lines.append("#EXT-X-START:TIME-OFFSET=-10.0")
+                    inserted = True
+            lines = new_lines
 
         resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
         resp.headers["Access-Control-Allow-Origin"] = "*"

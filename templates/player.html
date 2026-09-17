@@ -170,7 +170,8 @@
             // Android, PC, Chrome
             const hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: true,
+                lowLatencyMode: false,
+                liveSyncDurationCount: 2,
                 backBufferLength: 20
             });
             hls.loadSource(streamSource);
