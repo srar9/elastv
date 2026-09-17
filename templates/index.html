@@ -86,17 +86,25 @@
         <div class="match-item apple-glass-card rounded-2xl p-3.5 sm:p-4 transition border border-white/[0.06] hover:border-white/[0.14]" data-search="{{ ev.match | lower }} {{ ev.competition | lower }}">
             <div class="flex flex-col space-y-2.5">
                 
-                <!-- LÍNEA SUPERIOR: TORNEO Y HORA -->
+                <!-- LÍNEA SUPERIOR: TORNEO, HORA Y ESPECTADORES -->
                 <div class="flex items-center justify-between text-xs">
-                    <span class="font-medium text-white/50 tracking-wider uppercase text-[10px] truncate max-w-[200px]">
+                    <span class="font-medium text-white/50 tracking-wider uppercase text-[10px] truncate max-w-[180px]">
                         {{ ev.competition }}
                     </span>
                     
-                    {% if ev.time %}
-                    <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.06] text-amber-400/90 border border-white/[0.08]">
-                        <i data-lucide="clock" class="w-3 h-3 text-amber-400"></i> {{ ev.time }}
-                    </span>
-                    {% endif %}
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        {% if ev.time %}
+                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.06] text-amber-400/90 border border-white/[0.08]">
+                            <i data-lucide="clock" class="w-3 h-3 text-amber-400"></i> {{ ev.time }}
+                        </span>
+                        {% endif %}
+                        {% if ev.viewers_short %}
+                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span>
+                            <i data-lucide="eye" class="w-3 h-3"></i> {{ ev.viewers_short }}
+                        </span>
+                        {% endif %}
+                    </div>
                 </div>
 
                 <!-- TÍTULO DEL PARTIDO -->

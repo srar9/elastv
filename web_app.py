@@ -7,6 +7,7 @@ import json
 import html
 import requests
 import urllib.parse
+import hashlib
 from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
 from bot_stream_multicanal import resolve_tarjetaroja_stream as resolve_tr_engine
@@ -138,6 +139,46 @@ SCHEDULE_CACHE = {
 
 STREAM_RESOLVER_CACHE = {}
 
+# ==============================================================================
+# SISTEMA DE CONTADOR DE ESPECTADORES EN VIVO (MÉTRICAS DINÁMICAS REALISTAS)
+# ==============================================================================
+LIVE_VIEWERS_CACHE = {}
+
+def get_channel_viewers(slug):
+    now = time.time()
+    clean = str(slug).strip().lower().replace("_", "-")
+    entry = LIVE_VIEWERS_CACHE.get(clean)
+    
+    # Refrescar cada 15 segundos
+    if not entry or (now - entry.get("last_updated", 0) > 15):
+        # Generar número determinista por canal + ventana de 2 minutos
+        seed = int(hashlib.md5(f"{clean}-{int(now // 120)}".encode()).hexdigest()[:6], 16)
+        
+        # Categorización por relevancia
+        is_top = any(kw in clean for kw in ["apple", "espn", "max", "disney", "vix", "fox"])
+        if is_top:
+            base_min = 1450
+            base_max = 3980
+        else:
+            base_min = 450
+            base_max = 1750
+
+        viewers = base_min + (seed % (base_max - base_min))
+        # Pequeña variación de segundos actuales (-12 a +15)
+        jitter = (int(now) % 28) - 12
+        viewers = max(60, viewers + jitter)
+        
+        LIVE_VIEWERS_CACHE[clean] = {
+            "viewers": viewers,
+            "last_updated": now
+        }
+    return LIVE_VIEWERS_CACHE[clean]["viewers"]
+
+def format_viewers(count):
+    if count >= 1000:
+        return f"{count / 1000:.1f}K".replace(".", ",")
+    return str(count)
+
 def fetch_tarjetaroja_schedule():
     now = time.time()
     if now - SCHEDULE_CACHE["timestamp"] < 180 and SCHEDULE_CACHE["events"]:
@@ -185,11 +226,16 @@ def fetch_tarjetaroja_schedule():
                     channels.append({"name": cname.strip(), "slug": slug})
 
             if match_name:
+                best_slug = channels[0]["slug"] if channels else "espn"
+                ev_viewers = get_channel_viewers(best_slug)
                 events.append({
                     "time": ev_time,
                     "competition": ev_comp,
                     "match": match_name,
-                    "channels": channels
+                    "channels": channels,
+                    "viewers": ev_viewers,
+                    "viewers_formatted": f"{ev_viewers:,}".replace(",", "."),
+                    "viewers_short": format_viewers(ev_viewers)
                 })
 
         SCHEDULE_CACHE["timestamp"] = now
@@ -281,14 +327,34 @@ def player_view(slug):
     all_unique = get_unique_channels()
     recommended = [c for c in all_unique if c["slug"] != clean_slug][:12]
 
+    # Calcular espectadores en vivo
+    v_count = get_channel_viewers(clean_slug)
+    formatted_v = f"{v_count:,}".replace(",", ".")
+    short_v = format_viewers(v_count)
+
     return render_template(
         "player.html",
         channel=channel_info,
         clean_stream_src=clean_stream_src,
         iframe_url=iframe_url,
         recommended=recommended,
+        viewers=v_count,
+        formatted_viewers=formatted_v,
+        short_viewers=short_v,
         active_page="player"
     )
+
+@app.route("/api/viewers/<slug>")
+def api_viewers(slug):
+    clean_slug = slug.strip().lower().replace("_", "-")
+    v_count = get_channel_viewers(clean_slug)
+    return jsonify({
+        "ok": True,
+        "slug": clean_slug,
+        "viewers": v_count,
+        "formatted": f"{v_count:,}".replace(",", "."),
+        "short": format_viewers(v_count)
+    })
 
 # ==============================================================================
 # PROXY HLS UNIVERSAL (0 PUBLICIDAD / 0 POPUPS / CARGA INSTANTÁNEA EN MÓVILES)
