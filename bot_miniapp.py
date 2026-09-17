@@ -145,6 +145,12 @@ def handle_message(msg):
                             "text": "📡 Canales 24/7",
                             "web_app": {"url": f"{WEB_APP_BASE_URL}/canales"}
                         }
+                    ],
+                    [
+                        {
+                            "text": "📢 Unirse al Canal Oficial (@elasdelfutbol)",
+                            "url": "https://t.me/elasdelfutbol"
+                        }
                     ]
                 ]
             }
@@ -205,7 +211,14 @@ def handle_message(msg):
                     "web_app": {"url": WEB_APP_BASE_URL}
                 }
             ])
+            inline_buttons.append([
+                {
+                    "text": "📢 Canal Oficial de Telegram (@elasdelfutbol)",
+                    "url": "https://t.me/elasdelfutbol"
+                }
+            ])
 
+            msg_text += "📢 <b>Canal Oficial:</b> @elasdelfutbol\n"
             send_msg(chat_id, msg_text, reply_markup={"inline_keyboard": inline_buttons})
 
         elif text.startswith("/canales") or text.startswith("/deportes"):
@@ -215,16 +228,18 @@ def handle_message(msg):
                 "• 🏆 <b>Fox Sports Suite:</b> Fox Sports 1, Fox Sports 2, Fox Sports 3, FOX One MX, Fox Deportes USA\n"
                 "• ✨ <b>MAX (Champions League):</b> MAX 1, MAX 2, MAX 3 HD\n"
                 "• 📻 <b>DSports:</b> DSports 1, DSports 2, DSports+ HD\n"
-                "• ⭐ <b>Disney+ / Star+ PPV:</b> Canales 1 al 7 HD\n"
+                "• ⭐ <b>Disney+ / Star+ PPV:</b> Canales 1 al 15 HD\n"
+                "• 🍏 <b>Apple TV (MLS):</b> Señales 1 al 15 HD\n"
                 "• ⚡ <b>ViX+ Deportes:</b> Canales 1 al 8 HD\n"
-                "• 🌐 <b>Internacionales:</b> TyC Sports, TUDN, DAZN 1/2, GolTV, Movistar LaLiga, Movistar Campeones\n\n"
+                "• 🌐 <b>Internacionales:</b> TyC Sports, TUDN, Canal 5 MX, DAZN, GolTV, Movistar LaLiga\n\n"
+                "📢 <b>Canal Oficial de Telegram:</b> @elasdelfutbol\n\n"
                 "Toca el botón abajo para abrir la lista interactiva con selector de calidad y reproductores instantáneos:"
             )
             keyboard = {
                 "inline_keyboard": [
                     [
                         {
-                            "text": "📡 EXPLORAR 63 CANALES (Mini App)",
+                            "text": "📡 EXPLORAR TODOS LOS CANALES (Mini App)",
                             "web_app": {"url": f"{WEB_APP_BASE_URL}/canales"}
                         }
                     ],
@@ -236,6 +251,12 @@ def handle_message(msg):
                         {
                             "text": "🏆 Fox Sports 1",
                             "web_app": {"url": f"{WEB_APP_BASE_URL}/ver/fox1ar"}
+                        }
+                    ],
+                    [
+                        {
+                            "text": "📢 Canal Oficial: @elasdelfutbol",
+                            "url": "https://t.me/elasdelfutbol"
                         }
                     ]
                 ]
@@ -361,7 +382,8 @@ def handle_message(msg):
                 f"{match_title}\n\n"
                 f"📡 <b>Canal:</b> {channel_label}\n"
                 "🔥 <b>¡TRANSMISIÓN EN VIVO SIN CORTES!</b>\n"
-                "Toca el botón interactivo de abajo para ver la señal en HD directamente en Telegram:"
+                "Toca el botón interactivo de abajo para ver la señal en HD directamente en Telegram:\n\n"
+                "📢 <b>Canal Oficial:</b> @elasdelfutbol"
             )
 
             # Nota: En canales de Telegram los botones inline de tipo 'web_app' no están permitidos
@@ -379,6 +401,12 @@ def handle_message(msg):
                         {
                             "text": "📋 Ver Agenda Completa de Hoy",
                             "url": WEB_APP_BASE_URL
+                        }
+                    ],
+                    [
+                        {
+                            "text": "📢 Canal Oficial: @elasdelfutbol",
+                            "url": "https://t.me/elasdelfutbol"
                         }
                     ]
                 ]

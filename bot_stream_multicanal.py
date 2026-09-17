@@ -896,6 +896,7 @@ def get_live_matches_agenda(curr_key):
                 messages = []
                 header = (
                     "📅 <b>AGENDA DE PARTIDOS DE HOY (ElCiro - EN VIVO)</b>\n"
+                    "📢 <b>Canal Oficial:</b> @elasdelfutbol\n"
                     "<i>Señales exactas verificadas canal por canal en directo:</i>\n\n"
                 )
                 current_msg = header

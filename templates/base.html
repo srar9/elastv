@@ -129,8 +129,12 @@
                 </div>
             </a>
 
-            <!-- ESTADO Y REFRESCAR -->
+            <!-- ESTADO, CANAL TELEGRAM Y REFRESCAR -->
             <div class="flex items-center space-x-2">
+                <a href="https://t.me/elasdelfutbol" target="_blank" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#24A1DE]/15 border border-[#24A1DE]/30 text-[#24A1DE] hover:bg-[#24A1DE]/25 active:scale-95 transition text-[11px] font-medium">
+                    <i data-lucide="send" class="w-3 h-3"></i>
+                    <span class="font-semibold">@elasdelfutbol</span>
+                </a>
                 <button onclick="window.location.reload()" class="w-8 h-8 rounded-full apple-pill flex items-center justify-center text-white/80 hover:text-white active:scale-90 transition">
                     <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
                 </button>
@@ -146,29 +150,49 @@
     <!-- CONTENIDO PRINCIPAL -->
     <main class="max-w-4xl mx-auto px-3 sm:px-6 py-4 flex-grow w-full pb-28">
         {% block content %}{% endblock %}
+
+        <!-- FOOTER CANAL TELEGRAM -->
+        <footer class="pt-8 pb-4 text-center space-y-2 border-t border-white/[0.04] mt-8">
+            <p class="text-xs text-white/50 flex items-center justify-center gap-1.5">
+                <i data-lucide="send" class="w-3.5 h-3.5 text-[#24A1DE]"></i>
+                <span>Canal Oficial de Telegram:</span>
+                <a href="https://t.me/elasdelfutbol" target="_blank" class="text-[#24A1DE] font-semibold hover:underline">
+                    @elasdelfutbol
+                </a>
+            </p>
+            <p class="text-[10px] text-white/30">
+                ElCiro Live • Transmisiones deportivas 24/7 en HD sin publicidad
+            </p>
+        </footer>
     </main>
 
     <!-- BARRA DE NAVEGACIÓN INFERIOR ESTILO iOS / APPLE TAB BAR -->
     <nav class="fixed bottom-0 left-0 right-0 z-50 bg-black/85 backdrop-blur-2xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom,8px)] pt-2">
-        <div class="max-w-md mx-auto px-6 flex items-center justify-around h-12">
+        <div class="max-w-md mx-auto px-4 flex items-center justify-around h-12">
             
             <!-- TAB 1: PARTIDOS -->
-            <a href="/" class="flex flex-col items-center justify-center space-y-0.5 group w-16 {% if active_page == 'home' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
+            <a href="/" class="flex flex-col items-center justify-center space-y-0.5 group w-14 {% if active_page == 'home' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
                 <i data-lucide="calendar" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
                 <span class="text-[10px] tracking-tight">Partidos</span>
             </a>
 
             <!-- TAB 2: CANALES -->
-            <a href="/canales" class="flex flex-col items-center justify-center space-y-0.5 group w-16 {% if active_page == 'channels' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
+            <a href="/canales" class="flex flex-col items-center justify-center space-y-0.5 group w-14 {% if active_page == 'channels' %}text-red-500 font-semibold{% else %}text-white/40 hover:text-white/80{% endif %} transition">
                 <i data-lucide="tv" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
                 <span class="text-[10px] tracking-tight">Canales</span>
             </a>
 
             <!-- TAB 3: BUSCADOR -->
-            <button onclick="focusSearch()" class="flex flex-col items-center justify-center space-y-0.5 group w-16 text-white/40 hover:text-white/80 transition">
+            <button onclick="focusSearch()" class="flex flex-col items-center justify-center space-y-0.5 group w-14 text-white/40 hover:text-white/80 transition">
                 <i data-lucide="search" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
                 <span class="text-[10px] tracking-tight">Buscar</span>
             </button>
+
+            <!-- TAB 4: CANAL OFICIAL TELEGRAM -->
+            <a href="https://t.me/elasdelfutbol" target="_blank" class="flex flex-col items-center justify-center space-y-0.5 group w-14 text-[#24A1DE]/80 hover:text-[#24A1DE] transition">
+                <i data-lucide="send" class="w-5 h-5 group-active:scale-90 transition-transform"></i>
+                <span class="text-[10px] tracking-tight font-medium">Canal</span>
+            </a>
 
         </div>
     </nav>
