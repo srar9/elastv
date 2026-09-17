@@ -18,7 +18,7 @@ except Exception:
 
 from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule
 
-TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN", "").strip()
+TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN", "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_MINIAPP_BOT_TOKEN}"
 WEB_APP_BASE_URL = os.environ.get(
     "WEB_APP_BASE_URL", 
@@ -377,10 +377,8 @@ def main():
     print("🚀 BOT DEDICADO MINI APP (@Elciroas_bot)")
     print("=" * 65)
     if not TELEGRAM_MINIAPP_BOT_TOKEN:
-        print("⚠️ AVISO: Variable TELEGRAM_MINIAPP_BOT_TOKEN no configurada en Railway.")
-        print("Configura el token en Railway -> Variables -> TELEGRAM_MINIAPP_BOT_TOKEN")
-        while not os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN"):
-            time.sleep(15)
+        print("⚠️ AVISO: Variable TELEGRAM_MINIAPP_BOT_TOKEN no configurada.")
+        return
     setup_menu_button()
     print("Iniciando polling de Telegram para @Elciroas_bot...")
     offset = 0

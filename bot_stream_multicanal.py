@@ -11,8 +11,7 @@ import requests
 import base64
 
 # ==============================================================================
-# CONFIGURACIÓN GENERAL DEL BOT Y SERVIDOR TARJETA ROJA (100% NATIVO)
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 CONFIG_FILE = "stream_config.json"
 
@@ -1250,10 +1249,8 @@ def main():
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)
     if not TELEGRAM_BOT_TOKEN:
-        print("⚠️ AVISO: Variable TELEGRAM_BOT_TOKEN no configurada en Railway.")
-        print("Configura el token en Railway -> Variables -> TELEGRAM_BOT_TOKEN")
-        while not os.environ.get("TELEGRAM_BOT_TOKEN"):
-            time.sleep(15)
+        print("⚠️ AVISO: Variable TELEGRAM_BOT_TOKEN no configurada.")
+        return
     print("Iniciando polling de Telegram...")
     offset = 0
 
