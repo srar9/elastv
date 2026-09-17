@@ -37,9 +37,6 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- HLS.js Universal Engine -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -204,24 +201,6 @@
     <script>
         // Inicializar iconos
         lucide.createIcons();
-
-        // Asegurar identidad persistente del visitante para conteo exacto de espectadores (1 usuario = 1 vista)
-        (function() {
-            try {
-                let vid = null;
-                const m = document.cookie.match(/(^|;)\s*elas_vid\s*=\s*([^;]+)/);
-                if (m && m[2]) {
-                    vid = m[2].trim();
-                } else {
-                    vid = localStorage.getItem('elas_vid');
-                }
-                if (!vid || vid.length < 5) {
-                    vid = 'v_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-                }
-                localStorage.setItem('elas_vid', vid);
-                document.cookie = 'elas_vid=' + vid + '; path=/; max-age=2592000; SameSite=Lax';
-            } catch(e) {}
-        })();
 
         // Haptic Feedback Helper
         function triggerHaptic(type = 'light') {
