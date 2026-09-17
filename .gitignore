@@ -52,6 +52,6 @@ start_*.py
 *.mp4
 !templates/*.html
 *.log
-
-
-
+.env
+.env.*
+.env.local

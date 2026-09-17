@@ -18,18 +18,14 @@ except Exception:
 
 from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule
 
-# ==============================================================================
-# CONFIGURACIÓN DEL BOT MINI APP (@Elciroas_bot)
-# ==============================================================================
-TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get(
-    "TELEGRAM_MINIAPP_BOT_TOKEN", 
-    "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U"
-)
+TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN", "").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_MINIAPP_BOT_TOKEN}"
 WEB_APP_BASE_URL = os.environ.get(
     "WEB_APP_BASE_URL", 
     "https://elasdelfutbol-production.up.railway.app"
 )
+ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
+ADMIN_USER_IDS = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
 
 def send_msg(chat_id, text, reply_markup=None):
     try:
@@ -78,6 +74,7 @@ def normalize_channel_search(query):
 
 def handle_message(msg):
     chat_id = msg.get("chat", {}).get("id")
+    user_id = msg.get("from", {}).get("id")
     text = msg.get("text", "").strip()
     if not chat_id or not text:
         return
@@ -272,7 +269,20 @@ def handle_message(msg):
 
             send_msg(chat_id, res_text, reply_markup={"inline_keyboard": buttons})
 
+        elif text.startswith(("/id", "/myid", "/mi_id")):
+            send_msg(
+                chat_id, 
+                f"👤 <b>Tu ID de Telegram:</b> <code>{user_id}</code>\n"
+                f"💬 <b>Chat ID:</b> <code>{chat_id}</code>\n\n"
+                f"🛡️ <i>Copia tu ID numérico y colócalo en la variable <code>ADMIN_USER_IDS</code> de Railway para proteger tu bot de accesos no autorizados.</i>"
+            )
+            return
+
         elif text.startswith("/post") or text.startswith("/anunciar") or text.startswith("/publicar"):
+            if ADMIN_USER_IDS and str(user_id) not in ADMIN_USER_IDS:
+                send_msg(chat_id, "⛔ <b>Acceso denegado:</b> Solo el administrador autorizado puede usar el comando /post.")
+                return
+
             parts = text.split(maxsplit=2)
             if len(parts) < 2:
                 help_post = (
@@ -366,6 +376,11 @@ def main():
     print("=" * 65)
     print("🚀 BOT DEDICADO MINI APP (@Elciroas_bot)")
     print("=" * 65)
+    if not TELEGRAM_MINIAPP_BOT_TOKEN:
+        print("⚠️ AVISO: Variable TELEGRAM_MINIAPP_BOT_TOKEN no configurada en Railway.")
+        print("Configura el token en Railway -> Variables -> TELEGRAM_MINIAPP_BOT_TOKEN")
+        while not os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN"):
+            time.sleep(15)
     setup_menu_button()
     print("Iniciando polling de Telegram para @Elciroas_bot...")
     offset = 0

@@ -12,12 +12,12 @@ import base64
 
 # ==============================================================================
 # CONFIGURACIÓN GENERAL DEL BOT Y SERVIDOR TARJETA ROJA (100% NATIVO)
-# ==============================================================================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 CONFIG_FILE = "stream_config.json"
 
-ADMIN_USER_ID = None  # Acceso libre o ID numérico de Telegram
+ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
+ADMIN_USER_IDS = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
 
 HEADERS_BASE = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -1059,11 +1059,22 @@ def handle_message(msg):
     if not chat_id or not text:
         return
 
-    if ADMIN_USER_ID and user_id != ADMIN_USER_ID:
-        send_msg(chat_id, "⛔ No tienes permisos para usar este bot.")
-        return
-
     try:
+        if text.startswith(("/id", "/myid", "/mi_id")):
+            send_msg(
+                chat_id, 
+                f"👤 <b>Tu ID de Telegram:</b> <code>{user_id}</code>\n"
+                f"💬 <b>Chat ID:</b> <code>{chat_id}</code>\n\n"
+                f"🛡️ <i>Copia tu ID numérico y colócalo en la variable <code>ADMIN_USER_IDS</code> de Railway para proteger tu bot de transmisiones no autorizadas.</i>"
+            )
+            return
+
+        admin_commands = ["/stream", "/stop", "/stopall", "/stoppal", "/detener", "/key", "/delay", "/pausar"]
+        if any(text.lower().startswith(cmd) for cmd in admin_commands):
+            if ADMIN_USER_IDS and str(user_id) not in ADMIN_USER_IDS:
+                send_msg(chat_id, "⛔ <b>Acceso denegado:</b> Solo el administrador autorizado puede iniciar transmisiones o cambiar configuraciones.")
+                return
+
         curr_key = CONFIG.get("stream_key", "3936015063:nG8N_no46UfNuA6jXewiag")
 
         if text.startswith("/start") or text.startswith("/ayuda"):
@@ -1238,6 +1249,11 @@ def main():
     print("=" * 65)
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)
+    if not TELEGRAM_BOT_TOKEN:
+        print("⚠️ AVISO: Variable TELEGRAM_BOT_TOKEN no configurada en Railway.")
+        print("Configura el token en Railway -> Variables -> TELEGRAM_BOT_TOKEN")
+        while not os.environ.get("TELEGRAM_BOT_TOKEN"):
+            time.sleep(15)
     print("Iniciando polling de Telegram...")
     offset = 0
 
