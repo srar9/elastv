@@ -445,12 +445,6 @@ def handle_message(msg):
                     ],
                     [
                         {
-                            "text": "📋 Ver Agenda Completa de Hoy",
-                            "url": WEB_APP_BASE_URL
-                        }
-                    ],
-                    [
-                        {
                             "text": "📢 Canal Oficial: @elasdelfutbol",
                             "url": "https://t.me/elasdelfutbol"
                         }
