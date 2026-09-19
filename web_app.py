@@ -576,8 +576,6 @@ def api_events_viewers():
 # ==============================================================================
 # PROXY HLS UNIVERSAL (0 PUBLICIDAD / 0 POPUPS / CARGA INSTANTÁNEA EN MÓVILES)
 # ==============================================================================
-HLS_TS_CACHE = {}  # { target_url: (bytes_data, expire_ts) }
-
 @app.route("/stream/live/<slug>/master.m3u8")
 def hls_proxy_master(slug):
     clean_slug = slug.strip().lower().replace("_", "-")
@@ -605,11 +603,6 @@ def hls_proxy_master(slug):
                 lines.append(f"/stream/live/{clean_slug}/sub.m3u8?target={encoded}")
             else:
                 lines.append(line)
-
-        # Inyectar tag de segmentos independientes para acelerar inicio en móviles
-        if "#EXTM3U" in lines and not any("EXT-X-INDEPENDENT-SEGMENTS" in x for x in lines):
-            m_idx = lines.index("#EXTM3U")
-            lines.insert(m_idx + 1, "#EXT-X-INDEPENDENT-SEGMENTS")
 
         resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
         resp.headers["Access-Control-Allow-Origin"] = "*"
@@ -647,10 +640,6 @@ def hls_proxy_sub(slug):
             else:
                 lines.append(line)
 
-        if "#EXTM3U" in lines and not any("EXT-X-INDEPENDENT-SEGMENTS" in x for x in lines):
-            m_idx = lines.index("#EXTM3U")
-            lines.insert(m_idx + 1, "#EXT-X-INDEPENDENT-SEGMENTS")
-
         resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
         resp.headers["Access-Control-Allow-Origin"] = "*"
         resp.headers["Cache-Control"] = "no-cache"
@@ -666,40 +655,23 @@ def hls_proxy_segment(slug):
     if not target:
         return abort(400)
 
-    now = time.time()
-    # 1. Entrega instantánea desde memoria caché (0 ms de espera para móviles)
-    if target in HLS_TS_CACHE:
-        cached_data, exp = HLS_TS_CACHE[target]
-        if now < exp:
-            resp = Response(cached_data, content_type="video/mp2t")
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            resp.headers["Content-Length"] = str(len(cached_data))
-            resp.headers["Cache-Control"] = "public, max-age=60"
-            return resp
-
     try:
         stream_data = resolve_tarjetaroja_stream(clean_slug)
         headers = {
             "User-Agent": "Mozilla/5.0",
             "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
         }
-        r = requests.get(target, headers=headers, timeout=10)
+        r = requests.get(target, headers=headers, stream=True, timeout=10)
         if r.status_code != 200:
             return abort(r.status_code)
 
-        data = r.content
-        # Guardar en memoria durante 25 segundos
-        HLS_TS_CACHE[target] = (data, now + 25)
+        def generate():
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
 
-        # Limpieza ligera periódica de fragmentos vencidos
-        if len(HLS_TS_CACHE) > 100:
-            expired = [k for k, v in HLS_TS_CACHE.items() if now >= v[1]]
-            for k in expired:
-                HLS_TS_CACHE.pop(k, None)
-
-        resp = Response(data, content_type="video/mp2t")
+        resp = Response(stream_with_context(generate()), content_type="video/mp2t")
         resp.headers["Access-Control-Allow-Origin"] = "*"
-        resp.headers["Content-Length"] = str(len(data))
         resp.headers["Cache-Control"] = "public, max-age=60"
         return resp
     except Exception as e:
