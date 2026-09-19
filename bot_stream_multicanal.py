@@ -11,12 +11,14 @@ import requests
 import base64
 
 # ==============================================================================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
+TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 CONFIG_FILE = "stream_config.json"
 
 ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
-ADMIN_USER_IDS = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
+_env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
+# Garantizar que el ID del propietario siempre tenga acceso de administrador
+ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
 
 HEADERS_BASE = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -1252,6 +1254,14 @@ def main():
     if not TELEGRAM_BOT_TOKEN:
         print("⚠️ AVISO: Variable TELEGRAM_BOT_TOKEN no configurada.")
         return
+
+    # Eliminar cualquier webhook previo para garantizar que getUpdates funcione sin bloqueos
+    try:
+        del_res = requests.get(f"{API_URL}/deleteWebhook?drop_pending_updates=false", timeout=10)
+        print(f"Estado de webhook eliminado: {del_res.status_code}")
+    except Exception as e:
+        print(f"Aviso al limpiar webhook inicial: {e}")
+
     print("Iniciando polling de Telegram...")
     offset = 0
 
@@ -1267,6 +1277,13 @@ def main():
                         if "message" in result:
                             t = threading.Thread(target=handle_message, args=(result["message"],), daemon=True)
                             t.start()
+            elif r.status_code == 409:
+                print("Conflicto 409 detectado (posible webhook activo). Limpiando webhook...")
+                try:
+                    requests.get(f"{API_URL}/deleteWebhook?drop_pending_updates=false", timeout=10)
+                except Exception:
+                    pass
+                time.sleep(2)
             elif r.status_code in [401, 404]:
                 print(f"Error fatal Telegram: {r.status_code}. Revisa el TELEGRAM_BOT_TOKEN.")
                 time.sleep(10)

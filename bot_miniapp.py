@@ -19,14 +19,15 @@ except Exception:
 
 from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule, slugify_match
 
-TELEGRAM_MINIAPP_BOT_TOKEN = os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN", "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
+TELEGRAM_MINIAPP_BOT_TOKEN = (os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN") or "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_MINIAPP_BOT_TOKEN}"
 WEB_APP_BASE_URL = os.environ.get(
     "WEB_APP_BASE_URL", 
     "https://elasdelfutbol-production.up.railway.app"
 )
 ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
-ADMIN_USER_IDS = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
+_env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
+ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
 
 def send_msg(chat_id, text, reply_markup=None):
     try:
@@ -509,6 +510,13 @@ def main():
     if not TELEGRAM_MINIAPP_BOT_TOKEN:
         print("⚠️ AVISO: Variable TELEGRAM_MINIAPP_BOT_TOKEN no configurada.")
         return
+
+    try:
+        del_res = requests.get(f"{API_URL}/deleteWebhook?drop_pending_updates=false", timeout=10)
+        print(f"Estado de webhook miniapp eliminado: {del_res.status_code}")
+    except Exception as e:
+        print(f"Aviso al limpiar webhook inicial: {e}")
+
     setup_menu_button()
     print("Iniciando polling de Telegram para @Elciroas_bot...")
     offset = 0
@@ -525,6 +533,13 @@ def main():
                         if "message" in result:
                             t = threading.Thread(target=handle_message, args=(result["message"],), daemon=True)
                             t.start()
+            elif r.status_code == 409:
+                print("Conflicto 409 en @Elciroas_bot. Limpiando webhook...")
+                try:
+                    requests.get(f"{API_URL}/deleteWebhook?drop_pending_updates=false", timeout=10)
+                except Exception:
+                    pass
+                time.sleep(2)
             elif r.status_code in [401, 404]:
                 print(f"Error de token Telegram @Elciroas_bot: {r.status_code}.")
                 time.sleep(15)
