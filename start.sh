@@ -16,4 +16,4 @@ while true; do
 done &
 
 # Iniciar la aplicacion web en primer plano vinculada al puerto de Railway ($PORT o 8080)
-exec gunicorn web_app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 120
+exec gunicorn web_app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 12 --timeout 120

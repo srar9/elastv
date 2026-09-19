@@ -574,8 +574,13 @@ def api_events_viewers():
     return jsonify({"ok": True, "events": data})
 
 # ==============================================================================
-# PROXY HLS UNIVERSAL (0 PUBLICIDAD / 0 POPUPS / CARGA INSTANTÁNEA EN MÓVILES)
+# PROXY HLS UNIVERSAL (POOL DE CONEXIONES PERSISTENTES KEEP-ALIVE ULTRA-RÁPIDO)
 # ==============================================================================
+HLS_SESSION = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=100, max_retries=2)
+HLS_SESSION.mount("https://", _adapter)
+HLS_SESSION.mount("http://", _adapter)
+
 @app.route("/stream/live/<slug>/master.m3u8")
 def hls_proxy_master(slug):
     clean_slug = slug.strip().lower().replace("_", "-")
@@ -589,7 +594,7 @@ def hls_proxy_master(slug):
             "User-Agent": "Mozilla/5.0",
             "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
         }
-        r = requests.get(stream_url, headers=headers, timeout=8)
+        r = HLS_SESSION.get(stream_url, headers=headers, timeout=8)
         if r.status_code != 200:
             return abort(r.status_code)
 
@@ -625,7 +630,7 @@ def hls_proxy_sub(slug):
             "User-Agent": "Mozilla/5.0",
             "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
         }
-        r = requests.get(target, headers=headers, timeout=8)
+        r = HLS_SESSION.get(target, headers=headers, timeout=8)
         if r.status_code != 200:
             return abort(r.status_code)
 
@@ -661,12 +666,12 @@ def hls_proxy_segment(slug):
             "User-Agent": "Mozilla/5.0",
             "Referer": stream_data.get("iframe_url") or f"https://tarjetaroja.my/stream/{clean_slug}"
         }
-        r = requests.get(target, headers=headers, stream=True, timeout=10)
+        r = HLS_SESSION.get(target, headers=headers, stream=True, timeout=12)
         if r.status_code != 200:
             return abort(r.status_code)
 
         def generate():
-            for chunk in r.iter_content(chunk_size=65536):
+            for chunk in r.iter_content(chunk_size=131072):
                 if chunk:
                     yield chunk
 

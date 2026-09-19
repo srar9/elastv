@@ -167,16 +167,29 @@
             video.src = streamSource;
             video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
         } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            // Android, PC, Chrome
+            // Android, PC, Chrome (Buffer continuo y fluido sin cortes)
             const hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 20
+                lowLatencyMode: false,
+                liveSyncDurationCount: 3,
+                maxBufferLength: 15,
+                maxMaxBufferLength: 30,
+                maxBufferSize: 0,
+                backBufferLength: 15
             });
             hls.loadSource(streamSource);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
                 video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
+            });
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        hls.startLoad();
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        hls.recoverMediaError();
+                    }
+                }
             });
             window.hls = hls;
         }
