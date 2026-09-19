@@ -62,7 +62,14 @@
                 autoplay
                 playsinline
                 webkit-playsinline
+                preload="auto"
             ></video>
+
+            <!-- BOTÓN FLOTANTE ACTIVAR SONIDO (SI TELEGRAM BLOQUEA EL AUDIO INICIAL) -->
+            <button id="unmuteBtn" onclick="enableAudio()" class="hidden absolute top-3 left-3 z-30 px-3 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-white/20 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg active:scale-95 transition">
+                <i data-lucide="volume-x" class="w-4 h-4 text-red-400"></i>
+                <span>Toca para activar audio</span>
+            </button>
             {% elif iframe_url %}
             <!-- REPRODUCTOR DIRECTO OFICIAL SIN BLOQUEO ANTI-SANDBOX -->
             <iframe 
@@ -157,30 +164,125 @@
     }
 
     {% if clean_stream_src %}
-    // Inicializar reproductor de video nativo con soporte Apple HLS
     const video = document.getElementById('liveVideo');
     const streamSource = "{{ clean_stream_src }}";
+    const isApple = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream;
 
-    if (video) {
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Nativo para iPhone (Safari / WebKit de Telegram)
-            video.src = streamSource;
-            video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
-        } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            // Android, PC, Chrome
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 20
-            });
-            hls.loadSource(streamSource);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play().catch(e => console.log("Requiere interacción táctil para reproducir"));
-            });
-            window.hls = hls;
+    function enableAudio() {
+        if (video) {
+            video.muted = false;
+            const btn = document.getElementById('unmuteBtn');
+            if (btn) btn.classList.add('hidden');
         }
     }
+
+    function attemptPlay() {
+        if (!video) return;
+        const p = video.play();
+        if (p !== undefined) {
+            p.catch(err => {
+                console.log("Autoplay con sonido restringido en Telegram. Iniciando en modo silenciado...", err);
+                video.muted = true;
+                video.play().then(() => {
+                    const btn = document.getElementById('unmuteBtn');
+                    if (btn) {
+                        btn.classList.remove('hidden');
+                        if (window.lucide) lucide.createIcons();
+                    }
+                }).catch(e => {
+                    console.log("Requiere interacción táctil directa:", e);
+                });
+            });
+        }
+    }
+
+    function initHlsPlayer() {
+        if (!video) return;
+
+        if (window.hls) {
+            try { window.hls.destroy(); } catch(e) {}
+            window.hls = null;
+        }
+
+        if (typeof Hls !== 'undefined' && Hls.isSupported() && !isApple) {
+            // Android (incluyendo WebView de Telegram), PC, Chrome, Edge
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: false,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 6,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                maxBufferHole: 0.5,
+                nudgeOffset: 0.2,
+                nudgeMaxRetry: 5,
+                autoStartLoad: true
+            });
+
+            hls.loadSource(streamSource);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                attemptPlay();
+            });
+
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            hls.loadSource(streamSource);
+                            break;
+                    }
+                }
+            });
+
+            window.hls = hls;
+
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Nativo para iPhone (Safari / WebKit de Telegram)
+            video.src = streamSource;
+            video.addEventListener('loadedmetadata', function() {
+                attemptPlay();
+            }, { once: true });
+            attemptPlay();
+        }
+
+        // ==============================================================================
+        // DESCONGELADOR AUTOMÁTICO DE INICIO (ANTI-FREEZE EN TELEGRAM WEBVIEW)
+        // ==============================================================================
+        let initialKickDone = false;
+        const kickCheck = setInterval(() => {
+            if (!video || initialKickDone) {
+                clearInterval(kickCheck);
+                return;
+            }
+            if (!video.paused && video.currentTime > 0.4) {
+                if (video.videoWidth === 0 || video.readyState < 2) {
+                    initialKickDone = true;
+                    clearInterval(kickCheck);
+                    console.log("Descongelando fotograma inicial en Telegram...");
+                    if (window.hls) {
+                        window.hls.recoverMediaError();
+                    } else {
+                        video.currentTime += 0.15;
+                    }
+                } else if (video.videoWidth > 0 && video.readyState >= 2) {
+                    initialKickDone = true;
+                    clearInterval(kickCheck);
+                }
+            }
+        }, 600);
+
+        setTimeout(() => { clearInterval(kickCheck); }, 6000);
+    }
+
+    initHlsPlayer();
     {% endif %}
 
     function reloadPlayer() {
@@ -191,13 +293,7 @@
         const video = document.getElementById('liveVideo');
         if (video) {
             {% if clean_stream_src %}
-            if (window.hls) {
-                window.hls.loadSource("{{ clean_stream_src }}");
-                video.play().catch(() => {});
-            } else {
-                video.src = "{{ clean_stream_src }}";
-                video.play().catch(() => {});
-            }
+            initHlsPlayer();
             setTimeout(() => { if (icon) icon.classList.remove('animate-spin'); }, 600);
             return;
             {% endif %}
