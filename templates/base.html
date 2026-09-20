@@ -231,11 +231,14 @@
             // Soporte para botón Volver nativo de Telegram
             if (tg.BackButton) {
                 const isHome = window.location.pathname === '/' || window.location.pathname === '';
+                const isPlayer = window.location.pathname.startsWith('/ver/');
                 if (!isHome) {
                     tg.BackButton.show();
                     tg.BackButton.onClick(() => {
                         triggerHaptic('medium');
-                        if (window.history.length > 1) {
+                        if (isPlayer) {
+                            window.location.href = '/';
+                        } else if (window.history.length > 1) {
                             window.history.back();
                         } else {
                             window.location.href = '/';

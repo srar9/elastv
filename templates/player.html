@@ -11,7 +11,7 @@
     <!-- BARRA SUPERIOR: NAVEGACIÓN Y CANAL -->
     <div class="flex items-center justify-between gap-3">
         <div class="flex items-center space-x-2.5 min-w-0">
-            <a href="/canales" class="w-9 h-9 rounded-xl apple-glass flex items-center justify-center text-white/80 active:scale-90 transition shrink-0">
+            <a href="/" class="w-9 h-9 rounded-xl apple-glass flex items-center justify-center text-white/80 active:scale-90 transition shrink-0" title="Volver a partidos">
                 <i data-lucide="chevron-left" class="w-5 h-5"></i>
             </a>
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -82,8 +82,8 @@
                 <p class="text-white/40 text-[11px] max-w-xs leading-relaxed">
                     La señal se activará automáticamente al comenzar la previa del partido.
                 </p>
-                <a href="/canales" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition mt-2">
-                    Probar otro canal
+                <a href="/" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition mt-2">
+                    Ver cartelera de partidos
                 </a>
             </div>
             {% endif %}
@@ -149,10 +149,17 @@
 
 {% block scripts %}
 <script>
-    // Activar confirmación de cierre en Telegram WebApp mientras se ve video
+    // Activar confirmación de cierre y botón volver a partidos en Telegram WebApp
     if (window.Telegram && window.Telegram.WebApp) {
         try {
             window.Telegram.WebApp.enableClosingConfirmation();
+            if (window.Telegram.WebApp.BackButton) {
+                window.Telegram.WebApp.BackButton.show();
+                window.Telegram.WebApp.BackButton.onClick(() => {
+                    triggerHaptic('medium');
+                    window.location.href = '/';
+                });
+            }
         } catch(e) {}
     }
 
