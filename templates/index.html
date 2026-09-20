@@ -5,7 +5,7 @@
 {% block content %}
 <div class="space-y-4">
 
-    <!-- CABECERA Y BUSCADOR ESTILO APPLE -->
+    <!-- CABECERA Y RESUMEN ESTILO APPLE -->
     <div class="space-y-3">
         <div class="flex items-center justify-between">
             <div>
@@ -19,6 +19,24 @@
             <span class="text-xs font-medium text-white/40 bg-white/[0.06] border border-white/[0.08] px-2.5 py-1 rounded-full">
                 {% if events %}{{ events|length }}{% else %}0{% endif %} eventos
             </span>
+        </div>
+
+        <!-- PESTAÑA DESTACADA: TODOS VS 🔴 EN VIVO AHORA -->
+        <div class="grid grid-cols-2 gap-2 p-1 bg-[#1c1c1e] rounded-2xl border border-white/[0.08] shadow-inner">
+            <button id="tabAllMatches" onclick="setLiveFilter('all')" class="py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 bg-white text-black shadow-md active:scale-95">
+                <i data-lucide="calendar" class="w-4 h-4"></i>
+                <span>Todos los Partidos</span>
+                <span id="badgeCountAll" class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-black/10">
+                    {% if events %}{{ events|length }}{% else %}0{% endif %}
+                </span>
+            </button>
+            <button id="tabLiveMatches" onclick="setLiveFilter('live')" class="py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 text-white/70 hover:text-white active:scale-95">
+                <span class="w-2 h-2 rounded-full bg-red-500 pulse-apple"></span>
+                <span>🔴 EN VIVO AHORA</span>
+                <span id="badgeCountLive" class="px-2 py-0.2 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                    {{ live_events_count|default(0) }}
+                </span>
+            </button>
         </div>
 
         <!-- BUSCADOR MINIMALISTA TIPO iOS -->
@@ -81,48 +99,95 @@
 
     <!-- LISTA DE EVENTOS -->
     {% if events %}
-    <div id="matchesContainer" class="space-y-2.5 pt-1">
+    <div id="matchesContainer" class="space-y-3 pt-1">
         {% for ev in events %}
-        <div class="match-item apple-glass-card rounded-2xl p-3.5 sm:p-4 transition border border-white/[0.06] hover:border-white/[0.14]" data-search="{{ ev.match | lower }} {{ ev.competition | lower }}">
-            <div class="flex flex-col space-y-2.5">
+        <div class="match-item apple-glass-card rounded-2xl p-3.5 sm:p-4 transition border border-white/[0.06] hover:border-white/[0.14]" 
+             data-search="{{ ev.match | lower }} {{ ev.competition | lower }}" 
+             data-is-live="{% if ev.is_live %}true{% else %}false{% endif %}"
+             data-match-slug="{{ ev.match_slug }}">
+            <div class="flex flex-col space-y-3">
                 
-                <!-- LÍNEA SUPERIOR: TORNEO, HORA Y ESPECTADORES -->
+                <!-- LÍNEA SUPERIOR: TORNEO, ESTADO EN VIVO Y HORA -->
                 <div class="flex items-center justify-between text-xs">
-                    <span class="font-medium text-white/50 tracking-wider uppercase text-[10px] truncate max-w-[180px]">
-                        {{ ev.competition }}
-                    </span>
+                    <div class="flex items-center gap-2 min-w-0">
+                        {% if ev.comp_img %}
+                        <img src="{{ ev.comp_img }}" alt="{{ ev.competition }}" class="w-4 h-4 object-contain rounded-sm shrink-0" loading="lazy" onerror="this.remove()">
+                        {% endif %}
+                        <span class="font-bold text-white/50 tracking-wider uppercase text-[10px] truncate max-w-[160px] sm:max-w-[200px]">
+                            {{ ev.competition }}
+                        </span>
+                    </div>
                     
                     <div class="flex items-center gap-1.5 shrink-0">
+                        {% if ev.is_live %}
+                        <span class="live-status-pill inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-red-500/20 text-red-400 border border-red-500/30">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span> EN VIVO
+                        </span>
+                        {% endif %}
                         {% if ev.time %}
                         <span class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.06] text-amber-400/90 border border-white/[0.08]">
                             <i data-lucide="clock" class="w-3 h-3 text-amber-400"></i> {{ ev.time }}
                         </span>
                         {% endif %}
-                        {% if ev.viewers > 0 %}
-                        <span class="viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20" data-match-slug="{{ ev.match_slug }}" data-match="{{ ev.match | lower }}">
-                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span>
+                        <span class="viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md {% if ev.viewers > 0 %}bg-red-500/10 text-red-400 border border-red-500/20{% else %}bg-white/[0.04] text-white/40 border border-white/[0.06]{% endif %}" data-match-slug="{{ ev.match_slug }}" data-match="{{ ev.match | lower }}">
+                            {% if ev.viewers > 0 %}<span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span>{% endif %}
                             <i data-lucide="eye" class="w-3 h-3"></i> <span class="viewer-count-val">{{ ev.viewers_short }}</span>
                         </span>
-                        {% else %}
-                        <span class="viewer-badge-match inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.04] text-white/40 border border-white/[0.06]" data-match-slug="{{ ev.match_slug }}" data-match="{{ ev.match | lower }}">
-                            <i data-lucide="eye" class="w-3 h-3 text-white/30"></i> <span class="viewer-count-val">0</span>
-                        </span>
-                        {% endif %}
                     </div>
                 </div>
 
-                <!-- TÍTULO DEL PARTIDO -->
-                <h3 class="text-sm sm:text-base font-bold text-white tracking-tight leading-snug">
-                    {{ ev.match }}
-                </h3>
+                <!-- ESCUDOS Y NOMBRES DE LOS EQUIPOS ESTILO SOFASCORE / FLASHCORE -->
+                {% if ev.team2 %}
+                <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-1 bg-white/[0.02] rounded-xl px-2.5 border border-white/[0.04]">
+                    <!-- Equipo Local -->
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-8 h-8 rounded-full bg-white/[0.06] p-1 flex items-center justify-center shrink-0 border border-white/[0.08] shadow-sm">
+                            {% if ev.team1_badge %}
+                            <img src="{{ ev.team1_badge }}" alt="{{ ev.team1 }}" class="w-6 h-6 object-contain" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                            <span class="hidden text-[10px] font-black text-white/80">{{ ev.team1_short }}</span>
+                            {% else %}
+                            <span class="text-[10px] font-black text-white/80">{{ ev.team1_short }}</span>
+                            {% endif %}
+                        </div>
+                        <span class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">{{ ev.team1 }}</span>
+                    </div>
+
+                    <!-- VS Badge -->
+                    <div class="px-2 shrink-0">
+                        <span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-white/[0.08] text-white/40 border border-white/[0.06]">VS</span>
+                    </div>
+
+                    <!-- Equipo Visitante -->
+                    <div class="flex items-center justify-end gap-2.5 min-w-0 text-right">
+                        <span class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">{{ ev.team2 }}</span>
+                        <div class="w-8 h-8 rounded-full bg-white/[0.06] p-1 flex items-center justify-center shrink-0 border border-white/[0.08] shadow-sm">
+                            {% if ev.team2_badge %}
+                            <img src="{{ ev.team2_badge }}" alt="{{ ev.team2 }}" class="w-6 h-6 object-contain" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                            <span class="hidden text-[10px] font-black text-white/80">{{ ev.team2_short }}</span>
+                            {% else %}
+                            <span class="text-[10px] font-black text-white/80">{{ ev.team2_short }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="flex items-center gap-2.5 py-1 bg-white/[0.02] rounded-xl px-2.5 border border-white/[0.04]">
+                    <div class="w-8 h-8 rounded-full bg-white/[0.06] p-1 flex items-center justify-center shrink-0 border border-white/[0.08]">
+                        <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i>
+                    </div>
+                    <h3 class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">
+                        {{ ev.match }}
+                    </h3>
+                </div>
+                {% endif %}
 
                 <!-- CANALES / BOTONES DE TRANSMISIÓN DIRECTA -->
-                <div class="pt-1 flex flex-wrap items-center gap-1.5">
+                <div class="pt-0.5 flex flex-wrap items-center gap-1.5">
                     {% if ev.channels %}
                         {% for ch in ev.channels %}
-                        <a href="/ver/{{ ch.slug }}?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] active:scale-95 border border-white/[0.08] text-white text-[11px] font-semibold transition group">
+                        <a href="/ver/{{ ch.slug }}?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 border border-white/[0.08] text-white text-[11px] font-semibold transition group">
                             <i data-lucide="play" class="w-3 h-3 text-red-500 fill-red-500 group-hover:scale-110 transition-transform"></i>
-                            <span class="truncate">{{ ch.name }}</span>
+                            <span class="truncate">⚡ Señal {{ loop.index }} ({{ ch.name }})</span>
                         </a>
                         {% endfor %}
                     {% else %}
@@ -154,6 +219,23 @@
     </div>
     {% endif %}
 
+    <!-- ESTADO VACÍO CUANDO SE FILTRA EN VIVO AHORA -->
+    <div id="noLiveResults" class="hidden apple-glass rounded-2xl p-8 text-center text-white/50 text-xs space-y-3">
+        <div class="w-12 h-12 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto text-amber-400">
+            <i data-lucide="clock" class="w-6 h-6"></i>
+        </div>
+        <p class="font-bold text-white text-sm">No hay partidos rodando el balón en este momento</p>
+        <p class="text-white/40 max-w-xs mx-auto">Revisa la cartelera completa para ver todos los encuentros programados para hoy o disfruta los canales deportivos 24/7.</p>
+        <div class="pt-2 flex items-center justify-center gap-2">
+            <button onclick="setLiveFilter('all')" class="px-4 py-2 rounded-xl bg-white text-black font-bold text-xs transition active:scale-95 shadow-md">
+                Ver Todos los Partidos
+            </button>
+            <a href="/canales" class="px-3.5 py-2 rounded-xl bg-white/10 text-white font-semibold text-xs transition active:scale-95">
+                Canales 24/7
+            </a>
+        </div>
+    </div>
+
     <!-- ESTADO VACÍO EN BÚSQUEDA -->
     <div id="noResults" class="hidden apple-glass rounded-2xl p-8 text-center text-white/50 text-xs space-y-2">
         <p>No se encontraron eventos para esta búsqueda.</p>
@@ -167,7 +249,26 @@
 
 {% block scripts %}
 <script>
+    let activeFilter = 'all'; // 'all' | 'live'
     let activeLeague = 'all';
+
+    function setLiveFilter(filter) {
+        activeFilter = filter;
+        triggerHaptic('light');
+
+        const tabAll = document.getElementById('tabAllMatches');
+        const tabLive = document.getElementById('tabLiveMatches');
+
+        if (filter === 'all') {
+            tabAll.className = 'py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 bg-white text-black shadow-md active:scale-95';
+            tabLive.className = 'py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 text-white/70 hover:text-white active:scale-95';
+        } else {
+            tabLive.className = 'py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 bg-red-600 text-white shadow-lg shadow-red-600/30 active:scale-95';
+            tabAll.className = 'py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 text-white/70 hover:text-white active:scale-95';
+        }
+
+        filterMatches();
+    }
 
     function clearSearch() {
         const input = document.getElementById('matchSearch');
@@ -202,9 +303,13 @@
 
         const items = document.querySelectorAll('.match-item');
         let visible = 0;
+        let totalLive = 0;
 
         items.forEach(item => {
             const searchData = (item.getAttribute('data-search') || '');
+            const isLive = item.getAttribute('data-is-live') === 'true';
+            if (isLive) totalLive++;
+
             const matchSearch = (!query || searchData.includes(query));
 
             let matchLeague = true;
@@ -216,7 +321,12 @@
                 else if (activeLeague === 'argentina') matchLeague = searchData.includes('argentina') || searchData.includes('copa argentina');
             }
 
-            if (matchSearch && matchLeague) {
+            let matchLiveTab = true;
+            if (activeFilter === 'live') {
+                matchLiveTab = isLive;
+            }
+
+            if (matchSearch && matchLeague && matchLiveTab) {
                 item.style.display = '';
                 visible++;
             } else {
@@ -224,22 +334,45 @@
             }
         });
 
+        // Actualizar contador del badge en vivo si varió
+        const badgeLive = document.getElementById('badgeCountLive');
+        if (badgeLive && totalLive >= 0) {
+            badgeLive.textContent = totalLive;
+        }
+
         const noRes = document.getElementById('noResults');
-        if (noRes) {
-            noRes.classList.toggle('hidden', visible > 0);
+        const noLiveRes = document.getElementById('noLiveResults');
+        
+        if (activeFilter === 'live' && visible === 0 && !query) {
+            if (noLiveRes) noLiveRes.classList.remove('hidden');
+            if (noRes) noRes.classList.add('hidden');
+        } else {
+            if (noLiveRes) noLiveRes.classList.add('hidden');
+            if (noRes) noRes.classList.toggle('hidden', visible > 0);
         }
     }
 
-    // Actualización de espectadores en tiempo real por PARTIDO
+    // Actualización de espectadores y estado EN VIVO en tiempo real por PARTIDO
     setInterval(async () => {
         try {
             const res = await fetch('/api/events/viewers');
             if (res.ok) {
                 const data = await res.json();
                 if (data.ok && Array.isArray(data.events)) {
+                    let liveMatchesCount = 0;
                     data.events.forEach(ev => {
                         const mSlug = ev.match_slug || '';
                         const mName = (ev.match || '').toLowerCase();
+                        if (ev.is_live) liveMatchesCount++;
+
+                        document.querySelectorAll('.match-item').forEach(item => {
+                            const itemSlug = item.getAttribute('data-match-slug') || '';
+                            const searchData = item.getAttribute('data-search') || '';
+                            if ((mSlug && itemSlug === mSlug) || (mName && searchData.includes(mName))) {
+                                item.setAttribute('data-is-live', ev.is_live ? 'true' : 'false');
+                            }
+                        });
+
                         document.querySelectorAll('.viewer-badge-match').forEach(badge => {
                             const badgeSlug = badge.getAttribute('data-match-slug') || '';
                             const badgeName = badge.getAttribute('data-match') || '';
@@ -261,6 +394,15 @@
                             }
                         });
                     });
+
+                    const liveBadgeEl = document.getElementById('badgeCountLive');
+                    if (liveBadgeEl) {
+                        liveBadgeEl.textContent = liveMatchesCount;
+                    }
+
+                    if (activeFilter === 'live') {
+                        filterMatches();
+                    }
                 }
             }
         } catch(e) {}

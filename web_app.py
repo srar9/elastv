@@ -13,6 +13,7 @@ import hashlib
 from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
 from bot_stream_multicanal import resolve_tarjetaroja_stream as resolve_tr_engine
+from team_helper import parse_match_teams, get_team_short, get_team_badge, is_match_live
 
 app = Flask(__name__)
 
@@ -316,6 +317,9 @@ def fetch_tarjetaroja_schedule():
             m_comp = re.search(r'class="tr-event-competition">([^<]+)<', art)
             ev_comp = m_comp.group(1).strip().rstrip(":") if m_comp else ""
 
+            m_img = re.search(r'<img[^>]+class="tr-event-image"[^>]+src="([^"]+)"', art)
+            comp_img = m_img.group(1).strip() if m_img else ""
+
             m_title = re.search(r'class="tr-event-title">(.*?)</span>\s*<span class="tr-event-chevron"', art, re.DOTALL)
             if m_title:
                 raw_title = m_title.group(1)
@@ -341,6 +345,7 @@ def fetch_tarjetaroja_schedule():
                 events.append({
                     "time": ev_time,
                     "competition": ev_comp,
+                    "comp_img": comp_img,
                     "match": match_name,
                     "match_slug": m_slug,
                     "channels": channels
@@ -397,6 +402,7 @@ def index():
     raw_events = fetch_tarjetaroja_schedule()
     viewers_map = get_all_active_viewers_map()
     events = []
+    live_count = 0
     for ev in raw_events:
         ev_copy = dict(ev)
         m_slug = ev_copy.get("match_slug", "")
@@ -406,8 +412,30 @@ def index():
         ev_copy["viewers"] = v_count
         ev_copy["viewers_formatted"] = f"{v_count:,}".replace(",", ".")
         ev_copy["viewers_short"] = format_viewers(v_count)
+
+        # Determinar si el partido está actualmente EN VIVO
+        is_live = is_match_live(ev_copy.get("time"), v_count)
+        ev_copy["is_live"] = is_live
+        if is_live:
+            live_count += 1
+
+        # Separar equipos y buscar escudos oficiales
+        match_title = ev_copy.get("match", "")
+        t1, t2 = parse_match_teams(match_title)
+        ev_copy["team1"] = t1
+        ev_copy["team2"] = t2
+        ev_copy["team1_badge"] = get_team_badge(t1)
+        ev_copy["team2_badge"] = get_team_badge(t2)
+        ev_copy["team1_short"] = get_team_short(t1)
+        ev_copy["team2_short"] = get_team_short(t2)
+
         events.append(ev_copy)
-    return render_template("index.html", events=events, active_page="home")
+    return render_template(
+        "index.html", 
+        events=events, 
+        live_events_count=live_count, 
+        active_page="home"
+    )
 
 @app.route("/canales")
 def channels_view():
@@ -456,7 +484,9 @@ def player_view(slug):
         match_title = req_title or req_match.replace("-", " ").title()
         for ev in schedule_events:
             if ev.get("match_slug") == match_slug:
-                event_channels = ev.get("channels", [])
+                event_channels = list(ev.get("channels", []))
+                if not req_title and ev.get("match"):
+                    match_title = ev.get("match")
                 break
     else:
         # Buscar si este canal tiene un partido en curso en la agenda
@@ -465,7 +495,7 @@ def player_view(slug):
                 if ch.get("slug") == clean_slug:
                     match_slug = ev.get("match_slug")
                     match_title = ev.get("match")
-                    event_channels = ev.get("channels", [])
+                    event_channels = list(ev.get("channels", []))
                     break
             if match_slug:
                 break
@@ -474,8 +504,24 @@ def player_view(slug):
         match_slug = clean_slug
         match_title = channel_info.get("name", clean_slug.upper())
 
-    if not event_channels:
-        event_channels = [{"slug": clean_slug}]
+    # Asegurar que el canal actual esté en event_channels
+    found_curr = any(c.get("slug") == clean_slug for c in event_channels)
+    if not found_curr:
+        event_channels.insert(0, {"name": channel_info.get("name", clean_slug.upper()), "slug": clean_slug})
+
+    # Si hay sólo 1 señal, ofrecer opciones de contingencia populares para que siempre haya alternativas
+    if len(event_channels) < 2:
+        fallbacks = [
+            {"slug": "espn", "name": "ESPN 1 HD"},
+            {"slug": "espn2", "name": "ESPN 2 HD"},
+            {"slug": "foxsports", "name": "Fox Sports 1"},
+            {"slug": "disney1", "name": "Disney+ Eventos"}
+        ]
+        for fb in fallbacks:
+            if fb["slug"] != clean_slug and not any(c.get("slug") == fb["slug"] for c in event_channels):
+                event_channels.append(fb)
+            if len(event_channels) >= 3:
+                break
 
     # Registrar al usuario tanto en el partido como en el canal
     client_id = extract_client_id()
@@ -496,6 +542,11 @@ def player_view(slug):
     formatted_v = f"{v_count:,}".replace(",", ".")
     short_v = format_viewers(v_count)
 
+    # Equipos y escudos para el reproductor
+    t1, t2 = parse_match_teams(match_title)
+    t1_badge = get_team_badge(t1)
+    t2_badge = get_team_badge(t2)
+
     return render_template(
         "player.html",
         channel=channel_info,
@@ -504,6 +555,13 @@ def player_view(slug):
         recommended=recommended,
         match_title=match_title,
         match_slug=match_slug,
+        event_channels=event_channels,
+        team1=t1,
+        team2=t2,
+        team1_badge=t1_badge,
+        team2_badge=t2_badge,
+        team1_short=get_team_short(t1),
+        team2_short=get_team_short(t2),
         viewers=v_count,
         formatted_viewers=formatted_v,
         short_viewers=short_v,
@@ -565,11 +623,13 @@ def api_events_viewers():
         channels = ev.get("channels", [])
         v_count = calculate_event_viewers_from_map(viewers_map, m_slug, channels)
 
+        is_live = is_match_live(ev.get("time"), v_count)
         data.append({
             "match": ev.get("match", ""),
             "match_slug": m_slug,
             "viewers": v_count,
-            "short": format_viewers(v_count)
+            "short": format_viewers(v_count),
+            "is_live": is_live
         })
     return jsonify({"ok": True, "events": data})
 
