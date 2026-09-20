@@ -171,13 +171,30 @@
                     </div>
                 </div>
                 {% else %}
-                <div class="flex items-center gap-2.5 py-1 bg-white/[0.02] rounded-xl px-2.5 border border-white/[0.04]">
-                    <div class="w-8 h-8 rounded-full bg-white/[0.06] p-1 flex items-center justify-center shrink-0 border border-white/[0.08]">
-                        <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i>
+                <!-- EVENTO INDIVIDUAL / MOTORSPORT / CARRERAS -->
+                <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-gradient-to-r from-white/[0.05] via-white/[0.03] to-transparent border border-white/[0.08] shadow-sm">
+                    <div class="w-9 h-9 rounded-xl bg-white/[0.08] p-1.5 flex items-center justify-center shrink-0 border border-white/[0.1] shadow-inner">
+                        {% if ev.team1_badge %}
+                        <img src="{{ ev.team1_badge }}" alt="{{ ev.match }}" class="w-6 h-6 object-contain" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                        <i data-lucide="flag" class="hidden w-4 h-4 text-amber-400"></i>
+                        {% elif ev.comp_img %}
+                        <img src="{{ ev.comp_img }}" alt="{{ ev.competition }}" class="w-6 h-6 object-contain" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');">
+                        <i data-lucide="trophy" class="hidden w-4 h-4 text-amber-400"></i>
+                        {% else %}
+                        <i data-lucide="flag" class="w-4 h-4 text-amber-400"></i>
+                        {% endif %}
                     </div>
-                    <h3 class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">
-                        {{ ev.match }}
-                    </h3>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">
+                            {{ ev.match }}
+                        </h3>
+                        <div class="flex items-center gap-1.5 mt-0.5">
+                            <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                🏁 EN VIVO
+                            </span>
+                            <span class="text-[10px] text-white/40 truncate">{{ ev.competition }}</span>
+                        </div>
+                    </div>
                 </div>
                 {% endif %}
 
@@ -185,13 +202,13 @@
                 <div class="pt-0.5 flex flex-wrap items-center gap-1.5">
                     {% if ev.channels %}
                         {% for ch in ev.channels %}
-                        <a href="/ver/{{ ch.slug }}?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 border border-white/[0.08] text-white text-[11px] font-semibold transition group">
+                        <a href="/ver/{{ ch.slug }}?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}&c={{ ev.competition | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 border border-white/[0.08] text-white text-[11px] font-semibold transition group">
                             <i data-lucide="play" class="w-3 h-3 text-red-500 fill-red-500 group-hover:scale-110 transition-transform"></i>
                             <span class="truncate">⚡ Señal {{ loop.index }} ({{ ch.name }})</span>
                         </a>
                         {% endfor %}
                     {% else %}
-                        <a href="/ver/espn?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 active:scale-95 border border-red-500/30 text-red-400 text-[11px] font-semibold transition">
+                        <a href="/ver/espn?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}&c={{ ev.competition | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 active:scale-95 border border-red-500/30 text-red-400 text-[11px] font-semibold transition">
                             <i data-lucide="play" class="w-3 h-3 fill-current"></i>
                             <span>Ver en Vivo</span>
                         </a>

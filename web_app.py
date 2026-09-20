@@ -421,11 +421,12 @@ def index():
 
         # Separar equipos y buscar escudos oficiales
         match_title = ev_copy.get("match", "")
-        t1, t2 = parse_match_teams(match_title)
+        comp = ev_copy.get("competition", "")
+        t1, t2 = parse_match_teams(match_title, comp)
         ev_copy["team1"] = t1
         ev_copy["team2"] = t2
-        ev_copy["team1_badge"] = get_team_badge(t1)
-        ev_copy["team2_badge"] = get_team_badge(t2)
+        ev_copy["team1_badge"] = get_team_badge(t1, comp)
+        ev_copy["team2_badge"] = get_team_badge(t2, comp)
         ev_copy["team1_short"] = get_team_short(t1)
         ev_copy["team2_short"] = get_team_short(t2)
 
@@ -472,9 +473,11 @@ def player_view(slug):
     # Identificar el partido (por parámetro ?m=, ?title= o por agenda de hoy)
     req_match = request.args.get("m") or request.args.get("match")
     req_title = request.args.get("title")
+    req_comp = request.args.get("c") or request.args.get("competition") or ""
 
     match_slug = ""
     match_title = ""
+    competition = req_comp
     event_channels = []
 
     schedule_events = fetch_tarjetaroja_schedule()
@@ -487,6 +490,8 @@ def player_view(slug):
                 event_channels = list(ev.get("channels", []))
                 if not req_title and ev.get("match"):
                     match_title = ev.get("match")
+                if not competition and ev.get("competition"):
+                    competition = ev.get("competition")
                 break
     else:
         # Buscar si este canal tiene un partido en curso en la agenda
@@ -495,6 +500,8 @@ def player_view(slug):
                 if ch.get("slug") == clean_slug:
                     match_slug = ev.get("match_slug")
                     match_title = ev.get("match")
+                    if not competition and ev.get("competition"):
+                        competition = ev.get("competition")
                     event_channels = list(ev.get("channels", []))
                     break
             if match_slug:
@@ -503,6 +510,9 @@ def player_view(slug):
     if not match_slug:
         match_slug = clean_slug
         match_title = channel_info.get("name", clean_slug.upper())
+
+    if not competition:
+        competition = channel_info.get("category", "")
 
     # Asegurar que el canal actual esté en event_channels
     found_curr = any(c.get("slug") == clean_slug for c in event_channels)
@@ -543,9 +553,9 @@ def player_view(slug):
     short_v = format_viewers(v_count)
 
     # Equipos y escudos para el reproductor
-    t1, t2 = parse_match_teams(match_title)
-    t1_badge = get_team_badge(t1)
-    t2_badge = get_team_badge(t2)
+    t1, t2 = parse_match_teams(match_title, competition)
+    t1_badge = get_team_badge(t1, competition)
+    t2_badge = get_team_badge(t2, competition)
 
     return render_template(
         "player.html",
@@ -555,6 +565,7 @@ def player_view(slug):
         recommended=recommended,
         match_title=match_title,
         match_slug=match_slug,
+        competition=competition,
         event_channels=event_channels,
         team1=t1,
         team2=t2,

@@ -17,9 +17,15 @@
             <div class="min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
                     {% if match_title and match_title != channel.name %}
-                    <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        ⚽ PARTIDO
-                    </span>
+                        {% if team1 and team2 %}
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            ⚽ PARTIDO
+                        </span>
+                        {% else %}
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                            🏁 EVENTO
+                        </span>
+                        {% endif %}
                     {% else %}
                     <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-red-500/10 text-red-400 border border-red-500/20">
                         {{ channel.category }}
@@ -44,7 +50,11 @@
                         </span>
                         <span class="text-white/40 text-xs font-normal shrink-0">({{ channel.name }})</span>
                     {% else %}
-                        {% if match_title and match_title != channel.name %}{{ match_title }} <span class="text-white/40 text-xs font-normal">({{ channel.name }})</span>{% else %}{{ channel.name }}{% endif %}
+                        <span class="flex items-center gap-1.5 truncate">
+                            {% if team1_badge %}<img src="{{ team1_badge }}" alt="{{ match_title }}" class="w-4 h-4 object-contain inline shrink-0" onerror="this.remove()">{% endif %}
+                            <span>{% if match_title and match_title != channel.name %}{{ match_title }}{% else %}{{ channel.name }}{% endif %}</span>
+                        </span>
+                        <span class="text-white/40 text-xs font-normal shrink-0">({{ channel.name }})</span>
                     {% endif %}
                 </h1>
             </div>
@@ -160,7 +170,7 @@
             </div>
             <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
                 {% for ch in event_channels %}
-                <a href="/ver/{{ ch.slug }}?m={{ match_slug }}&title={{ match_title|urlencode }}" 
+                <a href="/ver/{{ ch.slug }}?m={{ match_slug }}&title={{ match_title|urlencode }}&c={{ competition|urlencode }}" 
                    class="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition shrink-0 {% if ch.slug == channel.slug %}bg-white text-black shadow-lg shadow-white/10 scale-105 border border-white{% else %}apple-glass text-white/80 hover:text-white border border-white/[0.08] active:scale-95{% endif %}">
                     <span class="w-2 h-2 rounded-full {% if ch.slug == channel.slug %}bg-red-500 pulse-apple{% else %}bg-emerald-400{% endif %}"></span>
                     <span>⚡ Señal {{ loop.index }} <span class="opacity-70 font-normal">({{ ch.name }})</span></span>
