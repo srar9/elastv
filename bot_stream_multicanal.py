@@ -149,6 +149,12 @@ def clean_arg(val):
 
 def resolve_channel_input(raw_input):
     clean = clean_arg(raw_input).lower()
+
+    # Si viene con prefijo sintético de evento (ej: ev40363_4_espn-movil -> espn-movil)
+    m_ev = re.match(r'^ev\d+_\d+_(.*)', clean)
+    if m_ev:
+        clean = m_ev.group(1)
+
     clean_no_space = clean.replace(" ", "").replace("_", "").replace("-", "")
 
     if clean in TR_CHANNELS:
@@ -164,62 +170,62 @@ def resolve_channel_input(raw_input):
         num = m_max.group(1)
         return f"max{num}", f"MAX {num} HD"
 
-    # Fanatiz regex (ej. "fanatiz 2", "fanatiz-4")
-    m_fan = re.search(r'fanatiz.*?(\d+)', clean)
-    if m_fan:
-        num = m_fan.group(1)
-        slug_f = "fanatiz" if num == "1" else f"fanatiz-{num}"
-        return slug_f, f"Fanatiz {num} HD"
-
     # Disney+ regex (ej. "disney 2", "disney-7", "disney 10")
     m_disney = re.search(r'disney.*?(\d+)', clean)
     if m_disney:
         num = int(m_disney.group(1))
-        slug_d = f"disney-{num}" if num <= 7 else f"disney{num}"
-        return slug_d, f"Disney {num} HD"
-
-    # Apple TV regex
-    m_apple = re.search(r'apple.*?(\d+)', clean)
-    if m_apple:
-        num = m_apple.group(1)
-        return f"appletv{num}", f"Apple TV {num} HD"
+        return f"disney{num}", f"Disney+ {num} HD"
 
     # ESPN regex
     if "espn" in clean:
         if "prem" in clean:
             return "espnpremium", "ESPN Premium HD (Argentina)"
-        if "deportes" in clean or "usa" in clean:
-            return "espn-deportes", "ESPN Deportes USA"
-        if "extra" in clean or "7" in clean or "6" in clean:
-            return "foxone3", "Fox Sports 3 / ESPN Extra HD"
-        if "5" in clean:
-            return "espn5", "ESPN 5 HD (Sur)"
-        if "4" in clean:
-            return "espn4", "ESPN 4 HD (Sur)"
-        if "3" in clean:
-            return "espn3", "ESPN 3 HD (Sur/Argentina)"
-        if "2" in clean:
-            return "espn2", "ESPN 2 HD (Sur/Argentina)"
+        if "mx" in clean:
+            m_mx = re.search(r'espn.*?(\d+).*?mx', clean) or re.search(r'espnmx.*?(\d+)', clean)
+            if m_mx:
+                return f"espn{m_mx.group(1)}mx", f"ESPN {m_mx.group(1)} México HD"
+            return "espnmx", "ESPN México HD"
+        if "extra" in clean:
+            return "espnextra", "ESPN Extra HD"
+        if "plus" in clean:
+            return "espnplus", "ESPN Plus HD"
+        m_num = re.search(r'espn.*?(\d+)', clean)
+        if m_num:
+            n = m_num.group(1)
+            if n == "1":
+                return "espn", "ESPN 1 HD (Sur/Argentina)"
+            if n in ["2", "3", "4", "5", "6", "7"]:
+                return f"espn{n}", f"ESPN {n} HD"
         return "espn", "ESPN 1 HD (Sur/Argentina)"
 
     # Fox Sports regex
     if "fox" in clean:
         if "prem" in clean:
-            return "foxpremium", "Fox Sports Premium HD"
-        if "one 3" in clean or "one3" in clean or "3" in clean:
-            return "foxone3", "FOX One 3 / Fox Sports 3 HD"
-        if "one 2" in clean or "one2" in clean:
-            return "foxone2", "FOX One 2"
-        if "one" in clean:
-            return "foxone", "Fox ONE MX"
-        if "2" in clean:
-            return "fox2ar", "Fox Sports 2 Argentina"
-        if "1" in clean:
+            return "foxsportspremium", "Fox Sports Premium HD"
+        if "mx" in clean:
+            m_fmx = re.search(r'fox.*?(\d+).*?mx', clean)
+            if m_fmx:
+                return f"foxsports{m_fmx.group(1)}mx", f"Fox Sports {m_fmx.group(1)} MX"
+            return "foxsportsmx", "Fox Sports MX"
+        if "ar" in clean:
+            if "2" in clean:
+                return "fox2ar", "Fox Sports 2 Argentina"
             return "fox1ar", "Fox Sports 1 Argentina"
-        return "fox1ar", "Fox Sports 1 Argentina"
+        m_fnum = re.search(r'fox.*?(\d+)', clean)
+        if m_fnum:
+            fn = m_fnum.group(1)
+            if fn == "1":
+                return "foxsports", "Fox Sports 1 HD"
+            if fn == "2":
+                return "foxsports2", "Fox Sports 2 HD"
+            if fn == "3":
+                return "foxsports3", "Fox Sports 3 HD"
+        return "foxsports", "Fox Sports 1 HD"
 
     # DIRECTV Sports / DSports
     if "dsport" in clean or "directv" in clean or "dtv" in clean:
+        if "event" in clean:
+            return "dsports_eventos", "DSports Eventos HD"
         if "plus" in clean or "+" in clean or "3" in clean:
             return "dsportsplus", "DSports+ HD"
         if "2" in clean:
@@ -228,24 +234,42 @@ def resolve_channel_input(raw_input):
 
     # ViX regex
     if "vix" in clean:
-        for num in ["5", "4", "3", "2", "1"]:
-            if num in clean:
-                return f"vix{num}", f"ViX+ Deportes {num} HD"
-        return "vix1", "ViX+ TUDN Deportes 1 HD"
+        m_vix = re.search(r'vix.*?(\d+)', clean)
+        if m_vix:
+            return f"vix{m_vix.group(1)}", f"ViX+ Deportes {m_vix.group(1)} HD"
+        return "vix1", "ViX+ Deportes 1 HD"
 
     # TyC Sports
     if "tyc" in clean:
         return "tycsports", "TyC Sports HD"
 
+    # TNT Sports
+    if "tnt" in clean:
+        if "chile" in clean:
+            return "tntsportschile", "TNT Sports Chile HD"
+        return "tntsports", "TNT Sports HD (Argentina)"
+
     # Win Sports
     if "win" in clean:
-        if "+" in clean or "plus" in clean:
-            return "winplus", "Win Sports + HD"
-        return "winsports", "Win Sports HD"
+        return "winplus", "Win Sports + HD"
 
-    # Sport TV BR
-    if "sport" in clean and "br" in clean:
-        return "sporttvbr1", "Sport TV 1 BR"
+    # TUDN
+    if "tudn" in clean:
+        if "mx" in clean:
+            return "tudn_mx", "TUDN México HD"
+        return "tudn", "TUDN Deportes"
+
+    # Canales de aire / Latam
+    if "telefe" in clean:
+        return "telefe", "Telefe HD"
+    if "caracol" in clean:
+        return "caracol", "Caracol TV HD"
+    if "america" in clean:
+        return "americatv", "América TV HD"
+    if "canal5" in clean or "canal 5" in clean:
+        return "canal5", "Canal 5 MX"
+    if "azteca" in clean:
+        return "azteca7", "Azteca 7 MX"
 
     return clean.replace(" ", "-"), f"Canal ElCiro [{clean}]"
 
@@ -835,18 +859,51 @@ def fetch_tarjetaroja_schedule():
                 ev_time = time_str[:5] if time_str else ""
 
             channels = []
+            seen_slugs = set()
             for idx, emb in enumerate(ev.get("embeds", [])):
                 iframe_url = emb.get("iframe", "").strip()
                 name = emb.get("name", f"Señal {idx+1}").strip()
-                slug = ""
+
+                slug = None
                 if "stream=" in iframe_url:
                     m_s = re.search(r'stream=([a-zA-Z0-9_\-]+)', iframe_url)
                     if m_s:
                         slug = m_s.group(1).lower()
-                if not slug:
-                    slug = f"ev{ev.get('id', '')}_{idx+1}_{slugify_match_bot(name)}"
 
-                channels.append({"name": name, "slug": slug, "iframe": iframe_url})
+                if not slug:
+                    # Mapear señales espejo (móvil, web) a canales conocidos
+                    target = f"{name} {iframe_url}".lower()
+                    if "espn2" in target:
+                        slug = "espn2"
+                    elif "espn3" in target:
+                        slug = "espn3"
+                    elif "espn4" in target:
+                        slug = "espn4"
+                    elif "espn" in target:
+                        slug = "espn"
+                    elif "tyc" in target:
+                        slug = "tycsports"
+                    elif "tnt" in target:
+                        slug = "tntsports"
+                    elif "tudn" in target:
+                        slug = "tudn"
+                    elif "dsport" in target:
+                        slug = "dsports"
+                    elif "america" in target:
+                        slug = "americatv"
+                    elif "telefe" in target:
+                        slug = "telefe"
+                    elif "caracol" in target:
+                        slug = "caracol"
+                    elif "canal5" in target or "canal 5" in target:
+                        slug = "canal5"
+                    elif "azteca" in target:
+                        slug = "azteca7"
+
+                # Solo incluir canales con señal directa reproducible por FFmpeg y evitar duplicados
+                if slug and slug not in seen_slugs:
+                    seen_slugs.add(slug)
+                    channels.append({"name": name, "slug": slug, "iframe": iframe_url})
 
             if match_name:
                 events.append({

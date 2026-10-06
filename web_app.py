@@ -327,6 +327,7 @@ def fetch_tarjetarojatv_schedule():
 
             # Canales / Embeds de transmisión
             channels = []
+            seen_slugs = set()
             for idx, emb in enumerate(ev.get("embeds", [])):
                 iframe_url = emb.get("iframe", "").strip()
                 name = emb.get("name", f"Señal {idx+1}").strip()
@@ -339,14 +340,44 @@ def fetch_tarjetarojatv_schedule():
                         slug = m_s.group(1).lower()
 
                 if not slug:
-                    slug = f"ev{ev.get('id', '')}_{idx+1}_{slugify_match(name)}"
+                    target = f"{name} {iframe_url}".lower()
+                    if "espn2" in target:
+                        slug = "espn2"
+                    elif "espn3" in target:
+                        slug = "espn3"
+                    elif "espn4" in target:
+                        slug = "espn4"
+                    elif "espn" in target:
+                        slug = "espn"
+                    elif "tyc" in target:
+                        slug = "tycsports"
+                    elif "tnt" in target:
+                        slug = "tntsports"
+                    elif "tudn" in target:
+                        slug = "tudn"
+                    elif "dsport" in target:
+                        slug = "dsports"
+                    elif "america" in target:
+                        slug = "americatv"
+                    elif "telefe" in target:
+                        slug = "telefe"
+                    elif "caracol" in target:
+                        slug = "caracol"
+                    elif "canal5" in target or "canal 5" in target:
+                        slug = "canal5"
+                    elif "azteca" in target:
+                        slug = "azteca7"
+                    else:
+                        slug = f"ev{ev.get('id', '')}_{idx+1}_{slugify_match(name)}"
 
-                channels.append({
-                    "name": name,
-                    "slug": slug,
-                    "iframe": iframe_url,
-                    "lang": lang
-                })
+                if slug not in seen_slugs:
+                    seen_slugs.add(slug)
+                    channels.append({
+                        "name": name,
+                        "slug": slug,
+                        "iframe": iframe_url,
+                        "lang": lang
+                    })
 
             if match_name:
                 m_slug = slugify_match(match_name)
@@ -389,6 +420,15 @@ def resolve_tarjetarojatv_stream(channel_slug):
     # Mapeo de alias a slug oficial de la18hd
     mapped_info = TR_CHANNELS.get(clean_slug)
     actual_slug = mapped_info["slug"] if mapped_info else clean_slug
+
+    # Si viene con prefijo sintético de evento (ej: ev40363_4_espn-movil)
+    m_ev = re.match(r'^ev\d+_\d+_(.*)', clean_slug)
+    if m_ev:
+        candidate_tag = m_ev.group(1).replace("-", "").replace("_", "")
+        for k, v in TR_CHANNELS.items():
+            if k in candidate_tag or candidate_tag in k:
+                actual_slug = v["slug"]
+                break
 
     slug_candidates = [actual_slug]
     if clean_slug != actual_slug:
