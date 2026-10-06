@@ -24,23 +24,27 @@ HEADERS_BASE = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Referer": "https://tarjetarojatv.mobi/"
+    "Referer": "https://tarjetarojaonline.info/"
 }
 
 # ==============================================================================
-# DIRECTORIO DE CANALES DEPORTIVOS VERIFICADOS (tarjetarojatv.mobi / la18hd.su)
+# DIRECTORIO DE CANALES DEPORTIVOS VERIFICADOS (tarjetarojaonline.info / la18hd.su)
 # ==============================================================================
 TR_CHANNELS = {
     # ESPN Suite
-    "espn": {"slug": "espn", "name": "ESPN 1 HD (Sur/Argentina)", "category": "espn"},
-    "espn1": {"slug": "espn", "name": "ESPN 1 HD (Sur/Argentina)", "category": "espn"},
-    "espn2": {"slug": "espn2", "name": "ESPN 2 HD (Sur/Argentina)", "category": "espn"},
-    "espn3": {"slug": "espn3", "name": "ESPN 3 HD (Sur/Argentina)", "category": "espn"},
-    "espn4": {"slug": "espn4", "name": "ESPN 4 HD (Sur)", "category": "espn"},
-    "espn5": {"slug": "espn5", "name": "ESPN 5 HD (Sur)", "category": "espn"},
+    "espn": {"slug": "espnmx", "name": "ESPN 1 HD", "category": "espn"},
+    "espn1": {"slug": "espnmx", "name": "ESPN 1 HD", "category": "espn"},
+    "espn-1": {"slug": "espnmx", "name": "ESPN 1 HD", "category": "espn"},
+    "espn2": {"slug": "espn2mx", "name": "ESPN 2 HD", "category": "espn"},
+    "espn-2": {"slug": "espn2mx", "name": "ESPN 2 HD", "category": "espn"},
+    "espn3": {"slug": "espn3mx", "name": "ESPN 3 HD", "category": "espn"},
+    "espn-3": {"slug": "espn3mx", "name": "ESPN 3 HD", "category": "espn"},
+    "espn4": {"slug": "espn4mx", "name": "ESPN 4 HD", "category": "espn"},
+    "espn-4": {"slug": "espn4mx", "name": "ESPN 4 HD", "category": "espn"},
+    "espn5": {"slug": "espn5", "name": "ESPN 5 HD", "category": "espn"},
     "espn6": {"slug": "espn6", "name": "ESPN 6 HD", "category": "espn"},
     "espn7": {"slug": "espn7", "name": "ESPN 7 HD", "category": "espn"},
-    "espnpremium": {"slug": "espnpremium", "name": "ESPN Premium HD (Argentina)", "category": "espn"},
+    "espnpremium": {"slug": "espnpremium", "name": "ESPN Premium HD", "category": "espn"},
     "espnextra": {"slug": "espnextra", "name": "ESPN Extra HD", "category": "espn"},
     "espnmx": {"slug": "espnmx", "name": "ESPN México HD", "category": "espn"},
     "espn2mx": {"slug": "espn2mx", "name": "ESPN 2 México HD", "category": "espn"},
@@ -51,15 +55,19 @@ TR_CHANNELS = {
     # Fox Sports Suite
     "fox1": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "category": "fox"},
     "fox1ar": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "category": "fox"},
-    "fox": {"slug": "foxsports", "name": "Fox Sports 1 HD", "category": "fox"},
-    "foxsports": {"slug": "foxsports", "name": "Fox Sports 1 HD", "category": "fox"},
+    "fox": {"slug": "foxsportsmx", "name": "Fox Sports 1 HD", "category": "fox"},
+    "foxsports": {"slug": "foxsportsmx", "name": "Fox Sports 1 HD", "category": "fox"},
+    "fox-sports-1": {"slug": "foxsportsmx", "name": "Fox Sports 1 HD", "category": "fox"},
+    "fox-sports-2": {"slug": "foxsports2mx", "name": "Fox Sports 2 HD", "category": "fox"},
+    "fox-sports-3": {"slug": "foxsports3mx", "name": "Fox Sports 3 HD", "category": "fox"},
+    "fox-sports-premium": {"slug": "foxsportspremium", "name": "Fox Sports Premium HD", "category": "fox"},
     "foxsportsar": {"slug": "foxsportsar", "name": "Fox Sports Argentina", "category": "fox"},
     "fox2": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "category": "fox"},
     "fox2ar": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "category": "fox"},
-    "foxsports2": {"slug": "foxsports2", "name": "Fox Sports 2 HD", "category": "fox"},
+    "foxsports2": {"slug": "foxsports2mx", "name": "Fox Sports 2 HD", "category": "fox"},
     "foxsports2ar": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "category": "fox"},
-    "fox3": {"slug": "foxsports3", "name": "Fox Sports 3 HD", "category": "fox"},
-    "foxsports3": {"slug": "foxsports3", "name": "Fox Sports 3 HD", "category": "fox"},
+    "fox3": {"slug": "foxsports3mx", "name": "Fox Sports 3 HD", "category": "fox"},
+    "foxsports3": {"slug": "foxsports3mx", "name": "Fox Sports 3 HD", "category": "fox"},
     "foxsportsmx": {"slug": "foxsportsmx", "name": "Fox Sports MX", "category": "fox"},
     "foxsports2mx": {"slug": "foxsports2mx", "name": "Fox Sports 2 MX", "category": "fox"},
     "foxsports3mx": {"slug": "foxsports3mx", "name": "Fox Sports 3 MX", "category": "fox"},
@@ -92,8 +100,9 @@ TR_CHANNELS = {
     "max3": {"slug": "max3", "name": "MAX 3 HD (Champions)", "category": "max"},
 
     # ViX+ / TUDN
-    "tudn": {"slug": "tudn", "name": "TUDN Deportes", "category": "vix"},
+    "tudn": {"slug": "tudn_mx", "name": "TUDN México HD", "category": "vix"},
     "tudn_mx": {"slug": "tudn_mx", "name": "TUDN México HD", "category": "vix"},
+    "tudn-mx": {"slug": "tudn_mx", "name": "TUDN México HD", "category": "vix"},
     "vix1": {"slug": "vix1", "name": "ViX+ Deportes 1 HD", "category": "vix"},
     "vix2": {"slug": "vix2", "name": "ViX+ Deportes 2 HD", "category": "vix"},
 
@@ -278,23 +287,26 @@ def format_viewers(count):
     return str(count)
 
 # ==============================================================================
-# OBTENCIÓN DE AGENDA DE PARTIDOS DIRECTAMENTE DESDE https://tarjetarojatv.mobi/
+# OBTENCIÓN DE AGENDA DE PARTIDOS DIRECTAMENTE DESDE https://tarjetarojaonline.info/
 # ==============================================================================
 def fetch_tarjetarojatv_schedule():
     """
     Obtiene la agenda oficial de partidos y eventos directamente desde
-    la API JSON de https://tarjetarojatv.mobi/api/agenda.
+    la API JSON de https://tarjetarojaonline.info/api/agenda.
     Ultra-rápido, sin parseo HTML frágil y con resolución directa de embeds.
     """
     now = time.time()
     if now - SCHEDULE_CACHE["timestamp"] < 90 and SCHEDULE_CACHE["events"]:
         return SCHEDULE_CACHE["events"]
 
-    url = "https://tarjetarojatv.mobi/api/agenda"
+    url = "https://tarjetarojaonline.info/api/agenda"
     try:
         r = requests.get(url, headers=HEADERS_BASE, timeout=8)
         if r.status_code != 200:
-            return SCHEDULE_CACHE["events"]
+            url_fallback = "https://tarjetarojatv.mobi/api/agenda"
+            r = requests.get(url_fallback, headers=HEADERS_BASE, timeout=8)
+            if r.status_code != 200:
+                return SCHEDULE_CACHE["events"]
 
         raw = r.json()
         events_list = raw.get("events", []) if isinstance(raw, dict) else raw
@@ -448,7 +460,7 @@ def resolve_tarjetarojatv_stream(channel_slug):
         try:
             r = requests.get(page_url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": "https://tarjetarojatv.mobi/"
+                "Referer": "https://tarjetarojaonline.info/"
             }, timeout=6)
             if r.status_code == 200:
                 m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r.text)
@@ -475,7 +487,7 @@ def resolve_tarjetarojatv_stream(channel_slug):
                                 try:
                                     r_sub = requests.get(ch_if, headers={
                                         "User-Agent": "Mozilla/5.0",
-                                        "Referer": "https://tarjetarojatv.mobi/"
+                                        "Referer": "https://tarjetarojaonline.info/"
                                     }, timeout=6)
                                     m_p = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_sub.text)
                                     if m_p:
@@ -659,9 +671,11 @@ def player_view(slug):
 
     stream_data = resolve_tarjetarojatv_stream(clean_slug)
     stream_url = stream_data.get("stream_url") if stream_data else None
-    raw_iframe = stream_data.get("iframe_url") if stream_data else None
+    raw_iframe = stream_data.get("iframe_url") if stream_data else f"https://la18hd.su/vivo/canal.php?stream={clean_slug}"
+    # Señal oficial directa de tarjetarojaonline.info (la18hd.su con Clappr + Swarmcloud P2P)
+    iframe_url = raw_iframe
+    clean_embed_url = f"/embed/{clean_slug}"
     clean_stream_src = stream_url if stream_url else None
-    iframe_url = f"/embed/{clean_slug}" if raw_iframe else None
 
     # Canales recomendados para el menú inferior
     all_unique = get_unique_channels()
@@ -682,6 +696,7 @@ def player_view(slug):
         channel=channel_info,
         clean_stream_src=clean_stream_src,
         iframe_url=iframe_url,
+        clean_embed_url=clean_embed_url,
         recommended=recommended,
         match_title=match_title,
         match_slug=match_slug,
@@ -898,7 +913,7 @@ def embed_view(slug):
 
     try:
         headers = dict(HEADERS_BASE)
-        headers["Referer"] = "https://tarjetarojatv.mobi/"
+        headers["Referer"] = "https://tarjetarojaonline.info/"
         r = requests.get(iframe_url, headers=headers, timeout=8)
         if r.status_code != 200:
             return "Error al cargar la señal de origen", 502

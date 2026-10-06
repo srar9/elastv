@@ -3,9 +3,6 @@
 {% block title %}En Vivo: {{ channel.name }} - ElCiro{% endblock %}
 
 {% block content %}
-<!-- HLS.js CDN para navegadores Android y PC (iOS usa reproducción nativa) -->
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
 <div class="space-y-4">
 
     <!-- BARRA SUPERIOR: NAVEGACIÓN Y CANAL -->
@@ -78,40 +75,16 @@
             <!-- REACCIONES FLOTANTES OVERLAY -->
             <div id="reactionsOverlay" class="absolute inset-0 pointer-events-none overflow-hidden z-30"></div>
 
-            {% if clean_stream_src %}
-            <!-- REPRODUCTOR NATIVO 100% LIMPIO (CERO PUBLICIDAD / CERO REDIRECCIONES / CERO SANDBOX) -->
-            <video 
-                id="liveVideo"
-                class="w-full h-full object-contain bg-black cursor-pointer"
-                controls
-                autoplay
-                muted
-                playsinline
-                webkit-playsinline
-            ></video>
-
-            <!-- BOTÓN FLOTANTE ACTIVAR SONIDO (GARANTIZA AUTOPLAY INSTANTÁNEO EN MÓVILES) -->
-            <div id="unmuteOverlay" class="absolute bottom-4 left-4 z-20 transition-all duration-300">
-                <button onclick="unmuteVideo(event)" class="px-3.5 py-2 rounded-xl bg-black/80 hover:bg-black text-white text-xs font-bold flex items-center gap-2 border border-white/20 backdrop-blur-md shadow-2xl active:scale-95 transition">
-                    <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
-                    <span>🔊 Activar Sonido</span>
-                </button>
-            </div>
-            {% endif %}
-
             {% if iframe_url %}
-            <!-- REPRODUCTOR DIRECTO OFICIAL SIN BLOQUEO ANTI-SANDBOX -->
+            <!-- REPRODUCTOR OFICIAL DE TARJETA ROJA ONLINE (CLAPPR + SWARMCLOUD P2P) -->
             <iframe 
                 id="liveFrame"
-                src="{{ iframe_url if not clean_stream_src else 'about:blank' }}" 
-                class="w-full h-full border-0 absolute inset-0 bg-black {% if clean_stream_src %}hidden{% endif %}"
+                src="{{ iframe_url }}" 
+                class="w-full h-full border-0 absolute inset-0 bg-black"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowfullscreen
-                referrerpolicy="no-referrer"
             ></iframe>
-            {% endif %}
-
-            {% if not clean_stream_src and not iframe_url %}
+            {% else %}
             <div class="flex flex-col items-center justify-center h-full p-6 text-center space-y-2.5">
                 <div class="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center text-amber-400">
                     <i data-lucide="alert-circle" class="w-5 h-5"></i>
@@ -127,18 +100,18 @@
             {% endif %}
         </div>
 
-        <!-- SELECTOR DE SEÑAL HD / SEÑAL WEB ALTERNATIVA -->
-        {% if clean_stream_src and iframe_url %}
+        <!-- SELECTOR DE SEÑAL OFICIAL TARJETA ROJA ONLINE VS SEÑAL PURIFICADA -->
+        {% if clean_embed_url %}
         <div class="mt-2.5 flex items-center justify-between gap-2 px-1">
             <div class="flex items-center gap-1.5 p-1 bg-white/[0.04] rounded-xl border border-white/[0.08]">
-                <button id="btnModeHls" onclick="switchPlayerMode('hls')" class="px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> ⚡ Señal Directa HD
+                <button id="btnModeOfficial" onclick="setIframeSource('{{ iframe_url }}', 'official')" class="px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> ⚡ Señal TarjetaRoja
                 </button>
-                <button id="btnModeWeb" onclick="switchPlayerMode('web')" class="px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition">
-                    <i data-lucide="globe" class="w-3.5 h-3.5 text-cyan-400"></i> 🌐 Señal Alternativa
+                <button id="btnModeClean" onclick="setIframeSource('{{ clean_embed_url }}', 'clean')" class="px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition">
+                    <i data-lucide="shield" class="w-3.5 h-3.5 text-cyan-400"></i> 🛡️ Señal Sin Anuncios
                 </button>
             </div>
-            <span class="text-[10px] text-white/40 hidden sm:inline">Si la señal se detiene, cambia de modo</span>
+            <span class="text-[10px] text-white/40 hidden sm:inline">Idéntico a tarjetarojaonline.info</span>
         </div>
         {% endif %}
 
@@ -270,151 +243,20 @@
         } catch(e) {}
     }
 
-    let currentMode = "{{ 'hls' if clean_stream_src else 'web' }}";
-    const streamSource = "{{ clean_stream_src|default('', true) }}";
-
-    function unmuteVideo(e) {
-        if (e) e.stopPropagation();
-        const video = document.getElementById('liveVideo');
-        if (video) {
-            video.muted = false;
-            video.play().catch(() => {});
-        }
-        const overlay = document.getElementById('unmuteOverlay');
-        if (overlay) overlay.style.display = 'none';
-        triggerHaptic('light');
-    }
-
-    function initHlsPlayer() {
-        const video = document.getElementById('liveVideo');
-        if (!video || !streamSource) return;
-
-        video.addEventListener('click', () => {
-            if (video.muted) unmuteVideo();
-        });
-        video.addEventListener('volumechange', () => {
-            if (!video.muted) {
-                const overlay = document.getElementById('unmuteOverlay');
-                if (overlay) overlay.style.display = 'none';
-            }
-        });
-
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Nativo para iPhone (Safari / WebKit de Telegram)
-            video.src = streamSource;
-            video.play().catch(e => console.log("Autoplay nativo en espera:", e));
-        } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            if (window.hls) {
-                try { window.hls.destroy(); } catch(e) {}
-            }
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: false,
-                liveSyncDurationCount: 2,
-                liveMaxLatencyDurationCount: 4,
-                maxBufferLength: 10,
-                maxMaxBufferLength: 20,
-                maxBufferSize: 60 * 1000 * 1000,
-                startFragPrefetch: true,
-                manifestLoadingTimeOut: 10000,
-                manifestLoadingMaxRetry: 4,
-                fragLoadingTimeOut: 15000,
-                fragLoadingMaxRetry: 4
-            });
-            hls.loadSource(streamSource);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play().catch(e => console.log("Autoplay HLS en espera:", e));
-            });
-            hls.on(Hls.Events.ERROR, function(event, data) {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log("Error de red HLS, recuperando...");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log("Error de medio HLS, recuperando...");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.log("Error fatal HLS, reiniciando...");
-                            try { hls.destroy(); } catch(e) {}
-                            setTimeout(initHlsPlayer, 2000);
-                            break;
-                    }
-                }
-            });
-            window.hls = hls;
-        }
-
-        if (!window.stallWatcherInterval) {
-            let lastPos = 0;
-            let freezeTicks = 0;
-            window.stallWatcherInterval = setInterval(() => {
-                const v = document.getElementById('liveVideo');
-                if (v && currentMode === 'hls' && !v.paused && !v.seeking && v.readyState >= 2) {
-                    if (v.currentTime === lastPos) {
-                        freezeTicks++;
-                        if (freezeTicks >= 3) {
-                            console.log("Anti-freeze nudge: avanzando 0.2s");
-                            v.currentTime += 0.2;
-                            freezeTicks = 0;
-                        }
-                    } else {
-                        freezeTicks = 0;
-                        lastPos = v.currentTime;
-                    }
-                }
-            }, 1000);
-        }
-    }
-
-    function switchPlayerMode(mode) {
+    function setIframeSource(url, mode) {
         triggerHaptic('medium');
-        const v = document.getElementById('liveVideo');
-        const f = document.getElementById('liveFrame');
-        const btnHls = document.getElementById('btnModeHls');
-        const btnWeb = document.getElementById('btnModeWeb');
-        const unmute = document.getElementById('unmuteOverlay');
-
-        if (mode === 'web') {
-            currentMode = 'web';
-            if (v) {
-                v.pause();
-                v.style.display = 'none';
-            }
-            if (unmute) unmute.style.display = 'none';
-            if (f) {
-                f.classList.remove('hidden');
-                f.style.display = 'block';
-                if (!f.src || f.src.includes('about:blank')) {
-                    f.src = "{{ iframe_url|default('', true) }}";
-                }
-            }
-            if (btnWeb) {
-                btnWeb.className = "px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm";
-            }
-            if (btnHls) {
-                btnHls.className = "px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition";
-            }
+        const frame = document.getElementById('liveFrame');
+        const btnOff = document.getElementById('btnModeOfficial');
+        const btnCln = document.getElementById('btnModeClean');
+        if (frame) {
+            frame.src = url;
+        }
+        if (mode === 'official') {
+            if (btnOff) btnOff.className = "px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm";
+            if (btnCln) btnCln.className = "px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition";
         } else {
-            currentMode = 'hls';
-            if (f) {
-                f.style.display = 'none';
-                f.classList.add('hidden');
-            }
-            if (v) {
-                v.style.display = 'block';
-                v.play().catch(() => {});
-            }
-            if (unmute && v && v.muted) unmute.style.display = 'block';
-            if (btnHls) {
-                btnHls.className = "px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm";
-            }
-            if (btnWeb) {
-                btnWeb.className = "px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition";
-            }
+            if (btnCln) btnCln.className = "px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm";
+            if (btnOff) btnOff.className = "px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition";
         }
     }
 
@@ -423,21 +265,6 @@
         const icon = document.getElementById('reloadIcon');
         if (icon) icon.classList.add('animate-spin');
 
-        if (currentMode === 'hls') {
-            const video = document.getElementById('liveVideo');
-            if (video && streamSource) {
-                if (window.hls) {
-                    window.hls.loadSource(streamSource);
-                    video.play().catch(() => {});
-                } else {
-                    video.src = streamSource;
-                    video.play().catch(() => {});
-                }
-                setTimeout(() => { if (icon) icon.classList.remove('animate-spin'); }, 600);
-                return;
-            }
-        }
-
         const frame = document.getElementById('liveFrame');
         if (frame) {
             const currentSrc = frame.src;
@@ -445,36 +272,22 @@
             setTimeout(() => { 
                 frame.src = currentSrc;
                 if (icon) icon.classList.remove('animate-spin');
-            }, 300);
+            }, 250);
         } else {
             window.location.reload();
         }
     }
 
-    {% if clean_stream_src %}
-    initHlsPlayer();
-    {% endif %}
-
     function toggleFullscreen() {
         triggerHaptic('medium');
-        const video = document.getElementById('liveVideo');
-        if (video) {
-            if (video.requestFullscreen) {
-                video.requestFullscreen();
-            } else if (video.webkitRequestFullscreen) {
-                video.webkitRequestFullscreen();
-            } else if (video.webkitEnterFullscreen) {
-                video.webkitEnterFullscreen();
-            }
-            return;
-        }
-
+        const frame = document.getElementById('liveFrame');
         const wrapper = document.getElementById('playerWrapper');
+        const target = frame || wrapper;
         if (!document.fullscreenElement) {
-            if (wrapper.requestFullscreen) {
-                wrapper.requestFullscreen();
-            } else if (wrapper.webkitRequestFullscreen) {
-                wrapper.webkitRequestFullscreen();
+            if (target.requestFullscreen) {
+                target.requestFullscreen();
+            } else if (target.webkitRequestFullscreen) {
+                target.webkitRequestFullscreen();
             }
         } else {
             if (document.exitFullscreen) {
