@@ -659,8 +659,9 @@ def player_view(slug):
 
     stream_data = resolve_tarjetarojatv_stream(clean_slug)
     stream_url = stream_data.get("stream_url") if stream_data else None
-    iframe_url = stream_data.get("iframe_url") if stream_data else None
-    clean_stream_src = f"/stream/live/{clean_slug}/master.m3u8" if stream_url else None
+    raw_iframe = stream_data.get("iframe_url") if stream_data else None
+    clean_stream_src = stream_url if stream_url else None
+    iframe_url = f"/embed/{clean_slug}" if raw_iframe else None
 
     # Canales recomendados para el menú inferior
     all_unique = get_unique_channels()
@@ -904,10 +905,10 @@ def embed_view(slug):
 
         html_content = r.text
 
-        # 1. Eliminar scripts publicitarios conocidos
-        html_content = re.sub(r'<script[^>]*src=["\'][^"\']*(?:aclib|llvpn|luugy|adcash|popunder|onclick|track)[^"\']*["\'][^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script[^>]*>.*?aclib\.runPop.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script[^>]*>.*?(?:11545073|11645073|11918478).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        # 1. Eliminar scripts publicitarios conocidos (sin borrar Clappr)
+        html_content = re.sub(r'<script\b[^>]*src=["\'][^"\']*(?:aclib|llvpn|luugy|adcash|popunder|onclick|track)[^"\']*["\'][^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?aclib\.runPop.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:11545073|11645073|11918478).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
 
         # 2. Desactivar detección de sandbox
         html_content = html_content.replace('.hasAttribute("sandbox")', '.hasAttribute("nosandbox")')

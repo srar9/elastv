@@ -429,7 +429,6 @@ def launch_ffmpeg_process(source_url, headers, destination, stream_id):
         cmd.extend(["-headers", headers])
 
     cmd.extend([
-        "-re",
         "-i", source_url,
         "-copyts",
         "-start_at_zero",
