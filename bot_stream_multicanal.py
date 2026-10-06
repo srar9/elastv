@@ -9,6 +9,8 @@ import subprocess
 import threading
 import requests
 import base64
+import unicodedata
+from datetime import datetime, timezone, timedelta
 
 # ==============================================================================
 TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
@@ -51,7 +53,7 @@ active_streams = {}
 stream_lock = threading.Lock()
 
 # ==============================================================================
-# DIRECTORIO INTEGRAL DE 63 CANALES DE TARJETA ROJA (https://tarjetaroja.my/)
+# DIRECTORIO INTEGRAL DE CANALES DEPORTIVOS (https://tarjetarojatv.mobi/ / la18hd.su)
 # ==============================================================================
 TR_CHANNELS = {
     # ESPN Suite
@@ -61,36 +63,34 @@ TR_CHANNELS = {
     "espn3": {"slug": "espn3", "name": "ESPN 3 HD (Sur/Argentina)", "cat": "espn"},
     "espn4": {"slug": "espn4", "name": "ESPN 4 HD (Sur)", "cat": "espn"},
     "espn5": {"slug": "espn5", "name": "ESPN 5 HD (Sur)", "cat": "espn"},
-    "espn6": {"slug": "foxone3", "name": "Fox Sports 3 / ESPN 6 HD", "cat": "espn"},
-    "espn7": {"slug": "foxone3", "name": "Fox Sports 3 / ESPN 7 HD", "cat": "espn"},
-    "espnextra": {"slug": "foxone3", "name": "Fox Sports 3 / ESPN Extra HD", "cat": "espn"},
+    "espn6": {"slug": "espn6", "name": "ESPN 6 HD", "cat": "espn"},
+    "espn7": {"slug": "espn7", "name": "ESPN 7 HD", "cat": "espn"},
     "espnpremium": {"slug": "espnpremium", "name": "ESPN Premium HD (Argentina)", "cat": "espn"},
-    "espn-deportes": {"slug": "espn-deportes", "name": "ESPN Deportes USA", "cat": "espn"},
-    "espndeportes": {"slug": "espn-deportes", "name": "ESPN Deportes USA", "cat": "espn"},
+    "espnextra": {"slug": "espnextra", "name": "ESPN Extra HD", "cat": "espn"},
+    "espnmx": {"slug": "espnmx", "name": "ESPN México HD", "cat": "espn"},
+    "espn2mx": {"slug": "espn2mx", "name": "ESPN 2 México HD", "cat": "espn"},
+    "espn3mx": {"slug": "espn3mx", "name": "ESPN 3 México HD", "cat": "espn"},
+    "espn4mx": {"slug": "espn4mx", "name": "ESPN 4 México HD", "cat": "espn"},
+    "espnplus": {"slug": "espnplus", "name": "ESPN Plus HD", "cat": "espn"},
 
     # Fox Sports Suite
     "fox1": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
     "fox1ar": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
-    "fox": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
-    "foxsports": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
-    "foxsports1": {"slug": "fox1ar", "name": "Fox Sports 1 Argentina", "cat": "fox"},
+    "fox": {"slug": "foxsports", "name": "Fox Sports 1 HD", "cat": "fox"},
+    "foxsports": {"slug": "foxsports", "name": "Fox Sports 1 HD", "cat": "fox"},
+    "foxsportsar": {"slug": "foxsportsar", "name": "Fox Sports Argentina", "cat": "fox"},
+    "foxsports1": {"slug": "foxsports", "name": "Fox Sports 1 HD", "cat": "fox"},
     "fox2": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
     "fox2ar": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
-    "foxsports2": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
-    "fox3": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
-    "fox3ar": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
-    "foxsports3": {"slug": "foxone3", "name": "FOX One 3 / Fox Sports 3 HD", "cat": "fox"},
-    "foxone": {"slug": "foxone", "name": "Fox ONE MX", "cat": "fox"},
-    "foxone2": {"slug": "foxone2", "name": "FOX One 2", "cat": "fox"},
-    "foxone3": {"slug": "foxone3", "name": "FOX One 3", "cat": "fox"},
-    "foxpremium": {"slug": "foxpremium", "name": "Fox Sports Premium HD", "cat": "fox"},
-    "fox-deportes": {"slug": "fox_deportes_usa", "name": "Fox Deportes USA", "cat": "fox"},
-    "foxdeportes": {"slug": "fox_deportes_usa", "name": "Fox Deportes USA", "cat": "fox"},
-
-    # MAX Suite (Señales MAX 1, MAX 2, MAX 3)
-    "max1": {"slug": "max1", "name": "MAX 1 HD", "cat": "max"},
-    "max2": {"slug": "max2", "name": "MAX 2 HD", "cat": "max"},
-    "max3": {"slug": "max3", "name": "MAX 3 HD", "cat": "max"},
+    "foxsports2": {"slug": "foxsports2", "name": "Fox Sports 2 HD", "cat": "fox"},
+    "foxsports2ar": {"slug": "fox2ar", "name": "Fox Sports 2 Argentina", "cat": "fox"},
+    "fox3": {"slug": "foxsports3", "name": "Fox Sports 3 HD", "cat": "fox"},
+    "foxsports3": {"slug": "foxsports3", "name": "Fox Sports 3 HD", "cat": "fox"},
+    "foxsportsmx": {"slug": "foxsportsmx", "name": "Fox Sports MX", "cat": "fox"},
+    "foxsports2mx": {"slug": "foxsports2mx", "name": "Fox Sports 2 MX", "cat": "fox"},
+    "foxsports3mx": {"slug": "foxsports3mx", "name": "Fox Sports 3 MX", "cat": "fox"},
+    "foxsportspremium": {"slug": "foxsportspremium", "name": "Fox Sports Premium HD", "cat": "fox"},
+    "foxpremium": {"slug": "foxsportspremium", "name": "Fox Sports Premium HD", "cat": "fox"},
 
     # DIRECTV Sports (DSPORTS)
     "dsports": {"slug": "dsports", "name": "DSports 1 HD", "cat": "dsports"},
@@ -98,70 +98,49 @@ TR_CHANNELS = {
     "dsports2": {"slug": "dsports2", "name": "DSports 2 HD", "cat": "dsports"},
     "dsportsplus": {"slug": "dsportsplus", "name": "DSports+ HD", "cat": "dsports"},
     "dsports3": {"slug": "dsportsplus", "name": "DSports+ HD", "cat": "dsports"},
+    "dsports_eventos": {"slug": "dsports_eventos", "name": "DSports Eventos HD", "cat": "dsports"},
 
-    # Fanatiz Suite (Señales Fanatiz 1 al 5)
-    "fanatiz": {"slug": "fanatiz", "name": "Fanatiz 1 HD", "cat": "fanatiz"},
-    "fanatiz1": {"slug": "fanatiz", "name": "Fanatiz 1 HD", "cat": "fanatiz"},
-    "fanatiz-2": {"slug": "fanatiz-2", "name": "Fanatiz 2 HD", "cat": "fanatiz"},
-    "fanatiz2": {"slug": "fanatiz-2", "name": "Fanatiz 2 HD", "cat": "fanatiz"},
-    "fanatiz-3": {"slug": "fanatiz-3", "name": "Fanatiz 3 HD", "cat": "fanatiz"},
-    "fanatiz3": {"slug": "fanatiz-3", "name": "Fanatiz 3 HD", "cat": "fanatiz"},
-    "fanatiz-4": {"slug": "fanatiz-4", "name": "Fanatiz 4 HD", "cat": "fanatiz"},
-    "fanatiz4": {"slug": "fanatiz-4", "name": "Fanatiz 4 HD", "cat": "fanatiz"},
-    "fanatiz-5": {"slug": "fanatiz-5", "name": "Fanatiz 5 HD", "cat": "fanatiz"},
-    "fanatiz5": {"slug": "fanatiz-5", "name": "Fanatiz 5 HD", "cat": "fanatiz"},
-
-    # ViX+ / TUDN / Universo
-    "vix1": {"slug": "vix1", "name": "ViX+ TUDN Deportes 1 HD", "cat": "vix"},
-    "vix2": {"slug": "vix2", "name": "ViX+ Zona TUDN HD", "cat": "vix"},
-    "vix3": {"slug": "vix3", "name": "ViX+ Deportes 3 HD", "cat": "vix"},
-    "vix4": {"slug": "vix4", "name": "ViX+ Deportes 4 HD", "cat": "vix"},
-    "vix5": {"slug": "vix5", "name": "ViX+ Deportes 5 HD", "cat": "vix"},
-    "tudn": {"slug": "tudn", "name": "TUDN MX HD", "cat": "vix"},
-    "tudnusa": {"slug": "tudn_usa", "name": "TUDN USA HD", "cat": "vix"},
-    "universo": {"slug": "universo_usa", "name": "Universo USA HD", "cat": "vix"},
-    "universo_usa": {"slug": "universo_usa", "name": "Universo USA HD", "cat": "vix"},
-
-    # Argentina, Colombia, Brasil, Perú
+    # Argentina y Sudamérica
     "tyc": {"slug": "tycsports", "name": "TyC Sports HD", "cat": "latam"},
     "tycsports": {"slug": "tycsports", "name": "TyC Sports HD", "cat": "latam"},
-    "tntsports": {"slug": "tntsports", "name": "TNT Sports HD", "cat": "latam"},
+    "tntsports": {"slug": "tntsports", "name": "TNT Sports HD (Argentina)", "cat": "latam"},
     "tntsportschile": {"slug": "tntsportschile", "name": "TNT Sports Chile HD", "cat": "latam"},
-    "winplus": {"slug": "winplus", "name": "Win Sports + HD", "cat": "latam"},
-    "winsports": {"slug": "winsports", "name": "Win Sports HD", "cat": "latam"},
-    "sporttvbr1": {"slug": "sporttvbr1", "name": "Sport TV 1 BR", "cat": "latam"},
-    "sporttv": {"slug": "sporttvbr1", "name": "Sport TV 1 BR", "cat": "latam"},
-    "liga1max": {"slug": "liga1max", "name": "Liga 1 MAX (Perú)", "cat": "latam"},
     "golperu": {"slug": "golperu", "name": "Gol Perú HD", "cat": "latam"},
-    "evento1": {"slug": "evento-1", "name": "Evento 1 HD", "cat": "latam"},
+    "winplus": {"slug": "winplus", "name": "Win Sports + HD", "cat": "latam"},
+    "winsports": {"slug": "winplus", "name": "Win Sports + HD", "cat": "latam"},
+    "telefe": {"slug": "telefe", "name": "Telefe HD", "cat": "latam"},
+    "caracol": {"slug": "caracol", "name": "Caracol TV HD", "cat": "latam"},
+    "americatv": {"slug": "americatv", "name": "América TV HD", "cat": "latam"},
 
-    # España / Champions / Premier
-    "movistarlaliga": {"slug": "movistarlaliga", "name": "Movistar LaLiga HD", "cat": "europe"},
-    "laliga": {"slug": "movistarlaliga", "name": "Movistar LaLiga HD", "cat": "europe"},
-    "daznlaliga": {"slug": "daznlaliga", "name": "DAZN LaLiga 1 FHD", "cat": "europe"},
-    "daznlaliga2": {"slug": "daznlaliga2", "name": "DAZN LaLiga 2 FHD", "cat": "europe"},
-    "campeones": {"slug": "campeones", "name": "Movistar Liga de Campeones 1 FHD", "cat": "europe"},
-    "campeones1": {"slug": "campeones", "name": "Movistar Liga de Campeones 1 FHD", "cat": "europe"},
-    "campeones2": {"slug": "campeones2", "name": "Movistar Liga de Campeones 2 FHD", "cat": "europe"},
-    "campeones3": {"slug": "campeones3", "name": "Movistar Liga de Campeones 3 FHD", "cat": "europe"},
-    "skysportspremier": {"slug": "skysportspremier", "name": "Sky Sports Premier League FHD", "cat": "europe"},
-    "skysportsmain": {"slug": "skysportsmain", "name": "Sky Sports Main Events FHD", "cat": "europe"},
-    "nbcsports": {"slug": "nbcsports", "name": "NBC Sports FHD", "cat": "europe"},
-    "usanetwork": {"slug": "usanetwork", "name": "USA Network HD", "cat": "europe"}
+    # MAX Suite (Champions League)
+    "max1": {"slug": "max1", "name": "MAX 1 HD (Champions)", "cat": "max"},
+    "max2": {"slug": "max2", "name": "MAX 2 HD (Champions)", "cat": "max"},
+    "max3": {"slug": "max3", "name": "MAX 3 HD (Champions)", "cat": "max"},
+
+    # ViX+ / TUDN
+    "tudn": {"slug": "tudn", "name": "TUDN Deportes", "cat": "vix"},
+    "tudn_mx": {"slug": "tudn_mx", "name": "TUDN México HD", "cat": "vix"},
+    "vix1": {"slug": "vix1", "name": "ViX+ Deportes 1 HD", "cat": "vix"},
+    "vix2": {"slug": "vix2", "name": "ViX+ Deportes 2 HD", "cat": "vix"},
+
+    # Internacionales / España
+    "laligatv": {"slug": "laligatv", "name": "LaLiga TV Bar", "cat": "europe"},
+    "dazn1": {"slug": "dazn1", "name": "DAZN 1 España", "cat": "europe"},
+    "dazn2": {"slug": "dazn2", "name": "DAZN 2 España", "cat": "europe"},
+    "movistarliga": {"slug": "movistarliga", "name": "Movistar LaLiga HD", "cat": "europe"},
+    "movistar-laliga": {"slug": "movistarliga", "name": "Movistar LaLiga HD", "cat": "europe"},
+    "canal5": {"slug": "canal5", "name": "Canal 5 MX", "cat": "latam"},
+    "azteca7": {"slug": "azteca7", "name": "Azteca 7 MX", "cat": "latam"},
+    "univision": {"slug": "univision", "name": "Univisión USA", "cat": "vix"},
+    "universo": {"slug": "universo", "name": "Universo USA", "cat": "vix"},
 }
 
 # Inyectar señales Disney+ Eventos (1 al 15)
 for i in range(1, 16):
-    slug_canonical = f"disney-{i}" if i <= 7 else f"disney{i}"
-    name_d = f"Disney {i} HD"
+    slug_canonical = f"disney{i}"
+    name_d = f"Disney+ {i} HD"
     TR_CHANNELS[f"disney-{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
     TR_CHANNELS[f"disney{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
-
-# Inyectar señales Apple TV MLS (appletv1 a appletv15)
-for i in range(1, 16):
-    slug_a = f"appletv{i}"
-    name_a = f"Apple TV {i} HD"
-    TR_CHANNELS[slug_a] = {"slug": slug_a, "name": name_a, "cat": "appletv"}
 
 def clean_arg(val):
     if not val:
@@ -308,46 +287,53 @@ def decode_streamxhd(html_content):
         return None
 
 def _fetch_single_tr_slug(clean_slug):
+    # 1. Probar en la18hd.su (infraestructura oficial de tarjetarojatv.mobi)
+    page_url_la = f"https://la18hd.su/vivo/canal.php?stream={clean_slug}"
+    try:
+        h_la = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://tarjetarojatv.mobi/"
+        }
+        r_page = requests.get(page_url_la, headers=h_la, timeout=8)
+        if r_page.status_code == 200:
+            m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_page.text)
+            if m_play:
+                stream_url = m_play.group(1).replace(r'\/', '/')
+                return stream_url, "https://la18hd.su/", "OK (la18hd directo)"
+    except Exception as e:
+        print(f"Error fetching la18hd for {clean_slug}:", e)
+
+    # 2. Fallback a tarjetaroja.my si existiera
     page_url = f"https://tarjetaroja.my/stream/{clean_slug}"
     try:
         r_page = requests.get(page_url, headers=HEADERS_BASE, timeout=8)
-        if r_page.status_code != 200:
-            return None, None, f"HTTP {r_page.status_code}"
+        if r_page.status_code == 200:
+            m_if = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', r_page.text, re.IGNORECASE)
+            if m_if:
+                iframe_url = m_if.group(1)
+                if iframe_url.startswith("//"):
+                    iframe_url = "https:" + iframe_url
 
-        m_if = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', r_page.text, re.IGNORECASE)
-        if not m_if:
-            return None, None, "No iframe"
+                h_if = dict(HEADERS_BASE)
+                h_if["Referer"] = page_url
+                r_if = requests.get(iframe_url, headers=h_if, timeout=8)
+                if r_if.status_code == 200:
+                    m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_if.text)
+                    if m_play:
+                        stream_url = m_play.group(1).replace(r'\/', '/')
+                        return stream_url, iframe_url, "OK (streamtp directo)"
 
-        iframe_url = m_if.group(1)
-        if iframe_url.startswith("//"):
-            iframe_url = "https:" + iframe_url
+                    dec_url = decode_streamxhd(r_if.text)
+                    if dec_url:
+                        return dec_url, iframe_url, "OK (streamxhd decodificado)"
 
-        h_if = dict(HEADERS_BASE)
-        h_if["Referer"] = page_url
-        h_if["Sec-Fetch-Dest"] = "iframe"
-        h_if["Sec-Fetch-Mode"] = "navigate"
-        h_if["Sec-Fetch-Site"] = "cross-site"
-
-        r_if = requests.get(iframe_url, headers=h_if, timeout=8)
-        if r_if.status_code != 200:
-            return None, None, f"Iframe HTTP {r_if.status_code}"
-
-        m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_if.text)
-        if m_play:
-            stream_url = m_play.group(1).replace(r'\/', '/')
-            return stream_url, iframe_url, "OK (streamtp directo)"
-
-        dec_url = decode_streamxhd(r_if.text)
-        if dec_url:
-            return dec_url, iframe_url, "OK (streamxhd decodificado)"
-
-        m_src = re.search(r'(?:source|file)\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', r_if.text)
-        if m_src:
-            return m_src.group(1).replace(r'\/', '/'), iframe_url, "OK (source/file directo)"
-
-        return None, None, "No stream url"
+                    m_src = re.search(r'(?:source|file)\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', r_if.text)
+                    if m_src:
+                        return m_src.group(1).replace(r'\/', '/'), iframe_url, "OK (source/file directo)"
     except Exception as e:
-        return None, None, str(e)
+        pass
+
+    return None, None, "No stream url"
 
 def resolve_tarjetaroja_stream(channel_slug):
     clean_slug = channel_slug.strip().lower().replace("_", "-")
@@ -382,7 +368,7 @@ def resolve_stream_source(channel_input):
 
     stream_url, iframe_ref, status_info = resolve_tarjetaroja_stream(resolved_slug)
     if stream_url:
-        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://tarjetaroja.my/\r\n"
+        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://la18hd.su/\r\n"
         headers_str = f"{ref_header}User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
         return stream_url, headers_str, channel_name, resolved_slug, True
 
@@ -806,59 +792,73 @@ t_super.start()
 # ==============================================================================
 MATCHES_AGENDA_CACHE = {"timestamp": 0, "messages": []}
 
+def slugify_match_bot(match_title):
+    if not match_title:
+        return ""
+    s = unicodedata.normalize('NFKD', str(match_title)).encode('ASCII', 'ignore').decode('utf-8')
+    s = re.sub(r'[^a-zA-Z0-9\s\-]', '', s).strip().lower()
+    s = re.sub(r'[\s\-]+', '-', s)
+    return s
+
 def fetch_tarjetaroja_schedule():
-    url = "https://tarjetaroja.my/"
+    url = "https://tarjetarojatv.mobi/api/agenda"
     try:
-        r = requests.get(url, headers=HEADERS_BASE, timeout=8)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://tarjetarojatv.mobi/"
+        }
+        r = requests.get(url, headers=headers, timeout=8)
         if r.status_code != 200:
             return []
 
-        html_text = r.text
-        parts = html_text.split('<article')
+        raw = r.json()
+        events_list = raw.get("events", []) if isinstance(raw, dict) else raw
         events = []
 
-        for p in parts[1:]:
-            art = '<article ' + p.split('</article>')[0] + '</article>'
-            if 'tr-event' not in art:
-                continue
-
-            m_time = re.search(r'class="tr-event-time[^"]*">([^<]+)<', art)
-            ev_time = m_time.group(1).strip() if m_time else ""
-
-            m_comp = re.search(r'class="tr-event-competition">([^<]+)<', art)
-            ev_comp = m_comp.group(1).strip().rstrip(":") if m_comp else ""
-
-            m_title = re.search(r'class="tr-event-title">(.*?)</span>\s*<span class="tr-event-chevron"', art, re.DOTALL)
-            if m_title:
-                raw_title = m_title.group(1)
-                clean_title = re.sub(r'<[^>]+>', ' ', raw_title)
-                clean_title = re.sub(r'\s+', ' ', clean_title).strip()
-                if ev_comp and clean_title.startswith(ev_comp):
-                    match_name = clean_title[len(ev_comp):].strip().lstrip(":").strip()
-                else:
-                    match_name = clean_title
+        for ev in events_list:
+            raw_title = ev.get("title", "").strip().replace("–", "-").replace("—", "-")
+            if ":" in raw_title:
+                comp, match_name = raw_title.split(":", 1)
+                comp = comp.strip()
+                match_name = match_name.strip()
             else:
-                m_search = re.search(r'data-search="([^"]+)"', art)
-                match_name = m_search.group(1).strip() if m_search else ""
+                comp = ev.get("sport", "Deportes").title()
+                match_name = raw_title
+
+            date_str = ev.get("date", "")
+            time_str = ev.get("time", "")
+            try:
+                dt_utc = datetime.strptime(f"{date_str} {time_str[:5]}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                dt_arg = dt_utc.astimezone(timezone(timedelta(hours=-3)))
+                ev_time = dt_arg.strftime("%H:%M")
+            except Exception:
+                ev_time = time_str[:5] if time_str else ""
 
             channels = []
-            ch_sec = re.search(r'class="tr-event-channels"[^>]*>(.*?)</div>', art, re.DOTALL)
-            if ch_sec:
-                for href, cname in re.findall(r'href="([^"]+)"[^>]*>([^<]+)<', ch_sec.group(1)):
-                    slug = href.rstrip("/").split("/")[-1].lower()
-                    channels.append({"name": cname.strip(), "slug": slug})
+            for idx, emb in enumerate(ev.get("embeds", [])):
+                iframe_url = emb.get("iframe", "").strip()
+                name = emb.get("name", f"Señal {idx+1}").strip()
+                slug = ""
+                if "stream=" in iframe_url:
+                    m_s = re.search(r'stream=([a-zA-Z0-9_\-]+)', iframe_url)
+                    if m_s:
+                        slug = m_s.group(1).lower()
+                if not slug:
+                    slug = f"ev{ev.get('id', '')}_{idx+1}_{slugify_match_bot(name)}"
+
+                channels.append({"name": name, "slug": slug, "iframe": iframe_url})
 
             if match_name:
                 events.append({
                     "time": ev_time,
-                    "competition": ev_comp,
+                    "competition": comp,
                     "match": match_name,
                     "channels": channels
                 })
 
         return events
     except Exception as e:
-        print("Error fetching tarjetaroja schedule:", e)
+        print("Error fetching tarjetarojatv schedule:", e)
         return []
 
 def get_live_matches_agenda(curr_key):
