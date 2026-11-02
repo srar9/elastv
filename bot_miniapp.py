@@ -17,6 +17,9 @@ try:
 except Exception:
     pass
 
+from bot_catalog import normalize_command, pack_blocks, event_blocks, telegram_parts, fold
+from agenda_service import LOCAL_TZ, schedule
+from datetime import datetime
 from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule, slugify_match
 
 TELEGRAM_MINIAPP_BOT_TOKEN = (os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN") or "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
@@ -30,21 +33,28 @@ _env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
 ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
 
 def send_msg(chat_id, text, reply_markup=None):
-    try:
-        url = f"{API_URL}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        if reply_markup:
+    result = {"ok": False}
+    for index, (part, mode) in enumerate(telegram_parts(str(text))):
+        payload = {"chat_id": chat_id, "text": part, "disable_web_page_preview": True}
+        if mode:
+            payload["parse_mode"] = mode
+        if reply_markup and index == 0:
             payload["reply_markup"] = reply_markup
-        r = requests.post(url, json=payload, timeout=10)
-        return r.json()
-    except Exception as e:
-        print(f"Error enviando mensaje a Telegram ({chat_id}):", e)
-        return {"ok": False, "description": str(e)}
+        try:
+            for attempt in range(3):
+                response = requests.post(f"{API_URL}/sendMessage", json=payload, timeout=12)
+                result = response.json()
+                if response.status_code == 429 and attempt < 2:
+                    time.sleep(max(1, int(result.get("parameters", {}).get("retry_after", 2))))
+                    continue
+                break
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            print("[Mini App] Error enviando mensaje:", type(exc).__name__)
+            result = {"ok": False}
+        if not result.get("ok"):
+            print("[Mini App] Telegram no aceptó un mensaje")
+    return result
+
 
 def send_photo(chat_id, photo, caption=None, reply_markup=None):
     try:
@@ -128,7 +138,8 @@ def handle_message(msg):
     chat_id = msg.get("chat", {}).get("id")
     user_id = msg.get("from", {}).get("id")
     raw_text = msg.get("text") or msg.get("caption") or ""
-    text = raw_text.strip()
+    text = normalize_command(raw_text)
+    command = text.split(maxsplit=1)[0] if text else ""
     if not chat_id or not text:
         return
 
@@ -140,7 +151,7 @@ def handle_message(msg):
         attached_photo = msg.get("reply_to_message", {}).get("photo")[-1].get("file_id")
 
     try:
-        if text.startswith("/start") or text.startswith("/ayuda") or text.startswith("/help"):
+        if command in ("/start", "/ayuda", "/help", "/comandos"):
             welcome_text = (
                 "⚽ <b>¡BIENVENIDO A ELCiro LIVE MINI APP!</b>\n\n"
                 "🚀 <b>Transmisiones en Directo 100% Inmunes a Bloqueos:</b>\n"
@@ -184,7 +195,7 @@ def handle_message(msg):
             }
             send_msg(chat_id, welcome_text, reply_markup=keyboard)
 
-        elif text.startswith("/web") or text.startswith("/app") or text.startswith("/ver"):
+        elif command in ("/web", "/app", "/ver"):
             msg_body = (
                 "📱 <b>ELCiro Mini App en Telegram:</b>\n\n"
                 "Presiona el botón interactivo abajo para desplegar el reproductor en vivo y la cartelera de eventos sin salir de Telegram:"
@@ -201,162 +212,64 @@ def handle_message(msg):
             }
             send_msg(chat_id, msg_body, reply_markup=keyboard)
 
-        elif text.startswith("/partidos") or text.startswith("/agenda") or text.startswith("/hoy"):
+        elif command in ("/partidos", "/agenda", "/hoy"):
             send_msg(chat_id, "⏳ <b>Cargando la agenda de partidos de hoy desde ElCiro...</b>")
             events = fetch_tarjetaroja_schedule()
             if not events:
                 send_msg(chat_id, "⚠️ No se encontraron partidos programados en este momento o la cartelera se está actualizando. Intenta nuevamente en unos minutos.")
                 return
 
-            msg_text = f"📅 <b>AGENDA DE PARTIDOS DE HOY ({len(events)} eventos):</b>\n\n"
-            inline_buttons = []
+            blocks = [f"📅 <b>PARTIDOS DEL {datetime.now(LOCAL_TZ).strftime('%d/%m/%Y')} · {len(events)} eventos</b>\n"
+                      "Horarios de Venezuela (UTC−4). Disponibilidad sujeta al proveedor."]
+            if schedule.stale:
+                blocks.append("⚠️ Última agenda de hoy guardada; no se pudo actualizar.")
+            blocks.extend(event_blocks(events, stream_commands=False))
+            pages = pack_blocks(blocks)
+            keyboard = {"inline_keyboard": [[{"text": "Abrir la agenda en la Mini App",
+                                               "web_app": {"url": WEB_APP_BASE_URL}}]]}
+            for index, page in enumerate(pages, 1):
+                send_msg(chat_id, f"📄 Agenda {index}/{len(pages)}\n\n{page}", reply_markup=keyboard if index == 1 else None)
 
-            for i, ev in enumerate(events[:12]):
-                ev_time = ev.get("time", "")
-                ev_comp = ev.get("competition", "")
-                ev_match = ev.get("match") or ev.get("title") or ""
-                ev_channels = ev.get("channels", [])
+        elif command in ("/canales", "/deportes", "/menu"):
+            entries = {info["slug"]: info for info in TR_CHANNELS.values()}
+            for event in fetch_tarjetaroja_schedule():
+                for channel in event["channels"]:
+                    entries.setdefault(channel["slug"], channel)
+            parts = text.split(maxsplit=1)
+            query = fold(parts[1]) if len(parts) > 1 else ""
+            channels = [ch for ch in entries.values() if query in fold(ch["name"] + " " + ch["slug"])]
+            blocks = [f"📺 <b>CANALES · {len(channels)} señales configuradas o publicadas</b>\nDisponibilidad sujeta al origen."]
+            for channel in sorted(channels, key=lambda ch: fold(ch["name"])):
+                url = f"{WEB_APP_BASE_URL}/ver/{urllib.parse.quote(channel['slug'])}"
+                blocks.append(f"📺 <a href=\"{html.escape(url, quote=True)}\">{html.escape(channel['name'][:100])}</a>")
+            for page in pack_blocks(blocks):
+                send_msg(chat_id, page)
 
-                ch_names = ", ".join([c["name"] for c in ev_channels[:3]]) if ev_channels else ""
-                ch_line = f"\n   📡 <i>{html.escape(ch_names)}</i>" if ch_names else ""
-
-                msg_text += f"⏰ <b>{ev_time}</b> | 🏆 <i>{html.escape(ev_comp)}</i>\n⚽ <b>{html.escape(ev_match)}</b>{ch_line}\n\n"
-
-                # Agregar botón para los primeros 4 partidos más destacados
-                if i < 4:
-                    best_slug = ev_channels[0]["slug"] if ev_channels else ""
-                    m_slug = ev.get("match_slug") or slugify_match(ev_match)
-                    if best_slug and m_slug:
-                        match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}?m={m_slug}&title={urllib.parse.quote(ev_match)}"
-                    elif best_slug:
-                        match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}"
-                    else:
-                        match_url = WEB_APP_BASE_URL
-                    inline_buttons.append([
-                        {
-                            "text": f"▶️ {ev_match[:28]}",
-                            "web_app": {"url": match_url}
-                        }
-                    ])
-
-            inline_buttons.append([
-                {
-                    "text": "📋 Ver Todos los Partidos en la Mini App",
-                    "web_app": {"url": WEB_APP_BASE_URL}
-                }
-            ])
-            inline_buttons.append([
-                {
-                    "text": "📢 Canal Oficial de Telegram (@elasdelfutbol)",
-                    "url": "https://t.me/elasdelfutbol"
-                }
-            ])
-
-            msg_text += "📢 <b>Canal Oficial:</b> @elasdelfutbol\n"
-            send_msg(chat_id, msg_text, reply_markup={"inline_keyboard": inline_buttons})
-
-        elif text.startswith("/canales") or text.startswith("/deportes"):
-            canales_msg = (
-                "📡 <b>DIRECTORIO DE CANALES DEPORTIVOS ELCiro (24/7):</b>\n\n"
-                "• ⚽ <b>ESPN Suite:</b> ESPN 1, ESPN 2, ESPN 3, ESPN 4, ESPN 5, ESPN Premium, ESPN Deportes\n"
-                "• 🏆 <b>Fox Sports Suite:</b> Fox Sports 1, Fox Sports 2, Fox Sports 3, FOX One MX, Fox Deportes USA\n"
-                "• ✨ <b>MAX (Champions League):</b> MAX 1, MAX 2, MAX 3 HD\n"
-                "• 📻 <b>DSports:</b> DSports 1, DSports 2, DSports+ HD\n"
-                "• ⭐ <b>Disney+ / Star+ PPV:</b> Canales 1 al 15 HD\n"
-                "• 🍏 <b>Apple TV (MLS):</b> Señales 1 al 15 HD\n"
-                "• ⚡ <b>ViX+ Deportes:</b> Canales 1 al 8 HD\n"
-                "• 🌐 <b>Internacionales:</b> TyC Sports, TUDN, Canal 5 MX, DAZN, GolTV, Movistar LaLiga\n\n"
-                "📢 <b>Canal Oficial de Telegram:</b> @elasdelfutbol\n\n"
-                "Toca el botón abajo para abrir la lista interactiva con selector de calidad y reproductores instantáneos:"
-            )
-            keyboard = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "📡 EXPLORAR TODOS LOS CANALES (Mini App)",
-                            "web_app": {"url": f"{WEB_APP_BASE_URL}/canales"}
-                        }
-                    ],
-                    [
-                        {
-                            "text": "⚽ ESPN 1 HD",
-                            "web_app": {"url": f"{WEB_APP_BASE_URL}/ver/espn"}
-                        },
-                        {
-                            "text": "🏆 Fox Sports 1",
-                            "web_app": {"url": f"{WEB_APP_BASE_URL}/ver/fox1ar"}
-                        }
-                    ],
-                    [
-                        {
-                            "text": "📢 Canal Oficial: @elasdelfutbol",
-                            "url": "https://t.me/elasdelfutbol"
-                        }
-                    ]
-                ]
-            }
-            send_msg(chat_id, canales_msg, reply_markup=keyboard)
-
-        elif text.startswith("/buscar") or text.startswith("/search"):
+        elif command in ("/buscar", "/search"):
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
                 send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/buscar &lt;nombre del equipo, canal o liga&gt;</code>\nEjemplo: <code>/buscar barcelona</code> o <code>/buscar espn</code>")
                 return
 
-            query = parts[1].strip()
-            q_lower = query.lower()
-
-            # Buscar en eventos de la agenda
+            query = parts[1].strip()[:200]
             events = fetch_tarjetaroja_schedule()
-            matched_events = [
-                e for e in events 
-                if q_lower in (e.get("match") or "").lower() or q_lower in (e.get("competition") or "").lower()
-            ]
+            matched = [e for e in events if fold(query) in fold(e["match"] + " " + e["competition"])]
+            entries = {info["slug"]: info for info in TR_CHANNELS.values()}
+            for event in events:
+                for channel in event["channels"]:
+                    entries.setdefault(channel["slug"], channel)
+            channels = [ch for ch in entries.values() if fold(query) in fold(ch["name"] + " " + ch["slug"])]
+            blocks = [f"🔎 <b>{html.escape(query)}</b> · {len(matched)} eventos / {len(channels)} canales"]
+            blocks.extend(event_blocks(matched, stream_commands=False))
+            for channel in channels:
+                url = f"{WEB_APP_BASE_URL}/ver/{urllib.parse.quote(channel['slug'])}"
+                blocks.append(f"📺 <a href=\"{html.escape(url, quote=True)}\">{html.escape(channel['name'][:100])}</a>")
+            if not matched and not channels:
+                blocks.append("No se encontraron coincidencias.")
+            for page in pack_blocks(blocks):
+                send_msg(chat_id, page)
 
-            # Buscar en canales
-            matched_channels = []
-            for k, info in TR_CHANNELS.items():
-                if q_lower in k or q_lower in info.get("name", "").lower() or q_lower in info.get("slug", "").lower():
-                    if info not in matched_channels:
-                        matched_channels.append(info)
-
-            if not matched_events and not matched_channels:
-                send_msg(chat_id, f"🔍 No se encontraron coincidencias para <b>'{html.escape(query)}'</b>. Intenta con otra palabra clave.")
-                return
-
-            res_text = f"🔍 <b>RESULTADOS PARA:</b> <i>{html.escape(query)}</i>\n\n"
-            buttons = []
-
-            if matched_events:
-                res_text += "⚽ <b>Partidos encontrados:</b>\n"
-                for ev in matched_events[:6]:
-                    ev_match = ev.get("match") or ev.get("title") or ""
-                    ev_channels = ev.get("channels", [])
-                    best_slug = ev_channels[0]["slug"] if ev_channels else ""
-                    match_url = f"{WEB_APP_BASE_URL}/ver/{best_slug}" if best_slug else WEB_APP_BASE_URL
-                    res_text += f"• <b>{ev.get('time', '')}</b>: {html.escape(ev_match)}\n"
-                    buttons.append([
-                        {
-                            "text": f"▶️ {ev_match[:28]}",
-                            "web_app": {"url": match_url}
-                        }
-                    ])
-                res_text += "\n"
-
-            if matched_channels:
-                res_text += "📡 <b>Canales encontrados:</b>\n"
-                for ch in matched_channels[:5]:
-                    res_text += f"• <b>{html.escape(ch.get('name', ''))}</b> (<code>{ch.get('slug', '')}</code>)\n"
-                    buttons.append([
-                        {
-                            "text": f"📺 Ver {ch.get('name', '')[:22]}",
-                            "web_app": {"url": f"{WEB_APP_BASE_URL}/ver/{ch.get('slug', '')}"}
-                        }
-                    ])
-
-            send_msg(chat_id, res_text, reply_markup={"inline_keyboard": buttons})
-
-        elif text.startswith(("/id", "/myid", "/mi_id")):
+        elif command in ("/id", "/myid", "/mi_id"):
             send_msg(
                 chat_id, 
                 f"👤 <b>Tu ID de Telegram:</b> <code>{user_id}</code>\n"
@@ -365,7 +278,7 @@ def handle_message(msg):
             )
             return
 
-        elif text.startswith("/post") or text.startswith("/anunciar") or text.startswith("/publicar"):
+        elif command in ("/post", "/anunciar", "/publicar"):
             if ADMIN_USER_IDS and str(user_id) not in ADMIN_USER_IDS:
                 send_msg(chat_id, "⛔ <b>Acceso denegado:</b> Solo el administrador autorizado puede usar el comando /post.")
                 return

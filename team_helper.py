@@ -151,7 +151,7 @@ def get_team_short(name):
 def is_match_live(ev_time, viewers_count=0):
     """
     Determina si un partido está actualmente EN VIVO basándose en espectadores activos
-    o en el horario de inicio (UTC-3 Buenos Aires / agenda Tarjetaroja).
+    o en el horario de inicio (UTC-4 Venezuela).
     """
     if viewers_count and viewers_count > 0:
         return True
@@ -172,9 +172,9 @@ def is_match_live(ev_time, viewers_count=0):
         minute = int(m.group(2))
         match_total_mins = h * 60 + minute
 
-        # Hora actual UTC-3
+        # Hora actual UTC-4
         now_utc = datetime.datetime.now(datetime.timezone.utc)
-        now_arg = now_utc - datetime.timedelta(hours=3)
+        now_arg = now_utc - datetime.timedelta(hours=4)
         now_total_mins = now_arg.hour * 60 + now_arg.minute
 
         diff = (now_total_mins - match_total_mins) % 1440

@@ -1,5 +1,5 @@
 @echo off
-title Bot de Transmision en PC - @Elasdelfutbolbot
+title Bot de Transmision en PC - @Tvelas_bot
 cd /d "%~dp0"
-python bot_local_pc.py
+python -u bot_stream_multicanal.py
 pause

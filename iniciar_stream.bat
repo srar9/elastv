@@ -1,5 +1,5 @@
 @echo off
-title Transmision Directa a Telegram (100%% Fluido)
+title Transmision a Telegram - Monitor de salida
 cd /d "%~dp0"
 python transmitir_telegram.py
 pause

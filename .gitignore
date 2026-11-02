@@ -57,3 +57,7 @@ start_*.py
 .env.local
 *.db
 *.db-*
+scratch/
+*.zip
+node_modules/
+el-ciro-plataforma/

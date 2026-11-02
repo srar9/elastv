@@ -1,4 +1,10 @@
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import subprocess
+from stream_runtime import build_command
 import time
 import requests
 import json
@@ -7,7 +13,7 @@ import sys
 import re
 from urllib.parse import urlparse
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9281285181:AAEo_hAjJo-zd537Kvz-f4QcU3iG-aUNGzo").strip()
 RTMP_SERVER = "rtmps://dc4-1.rtmp.t.me/s/"
 CHANNELS_FILE = os.path.join(os.path.dirname(__file__), "channels_local.json")
 
@@ -113,48 +119,7 @@ def start_single_stream(stream_id, source_url, stream_key, label=None):
         f"Origin: {referer.rstrip('/')}\r\n"
     )
 
-    cmd = [
-        "ffmpeg",
-        "-user_agent", "IPTVSmartersPro",
-        "-thread_queue_size", "8192",
-        "-reconnect", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "2",
-        "-rw_timeout", "15000000",
-        "-fflags", "+genpts+igndts+discardcorrupt",
-        "-analyzeduration", "2000000",
-        "-probesize", "2000000",
-        "-live_start_index", "-3",
-        "-avoid_negative_ts", "make_zero",
-        "-headers", headers,
-        "-i", source_url,
-        "-vf", "fps=fps=30:round=near,setpts=N/(30*TB),scale=1280:720:flags=fast_bilinear",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-profile:v", "main",
-        "-level", "3.1",
-        "-threads", "0",
-        "-b:v", "1500k",
-        "-maxrate", "1800k",
-        "-bufsize", "3000k",
-        "-pix_fmt", "yuv420p",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-sc_threshold", "0",
-        "-af", "aresample=48000:async=1000:first_pts=0",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "48000",
-        "-ac", "2",
-        "-bsf:a", "aac_adtstoasc",
-        "-flush_packets", "1",
-        "-max_interleave_delta", "0",
-        "-max_muxing_queue_size", "8192",
-        "-flvflags", "no_duration_filesize",
-        "-f", "flv",
-        destination
-    ]
+    cmd = build_command(source_url, headers, destination)
 
     log_file = "stream_local.log"
     out_f = open(log_file, "w", encoding="utf-8", errors="ignore")

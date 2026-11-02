@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+stream_config.json
+config_stream.json
+*.db
+*.db-*
+*.log
+*.flv
+*.mp4
+*.zip
+data/

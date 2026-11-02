@@ -1,0 +1,8 @@
+type TelegramApp = { initData?:string; ready:()=>void; expand:()=>void; setHeaderColor?:(s:string)=>void; setBackgroundColor?:(s:string)=>void; openTelegramLink?:(s:string)=>void; BackButton?:{show:()=>void;hide:()=>void;onClick:(f:()=>void)=>void;offClick:(f:()=>void)=>void} };
+declare global { interface Window { Telegram?:{WebApp?:TelegramApp} } }
+export function miniApp(){const app=window.Telegram?.WebApp;return app?.initData?app:undefined;}
+export function initTelegram(){const app=miniApp();if(app){app.ready();app.expand();app.setHeaderColor?.('#0a121b');app.setBackgroundColor?.('#080e15');}}
+export function matchLink(id:string,day:string){const u=new URL(location.href);u.search='';u.hash='';u.searchParams.set('partido',id);u.searchParams.set('fecha',day);return u.href;}
+export function currentLink(){const u=new URL(location.href),q=new URLSearchParams(u.search);u.search='';u.hash='';for(const key of ['partido','fecha','canal']){const value=q.get(key);if(value)u.searchParams.set(key,value);}return u.href;}
+export function telegramShare(url:string,text:string){const share='https://t.me/share/url?url='+encodeURIComponent(url)+'&text='+encodeURIComponent(text);const app=miniApp();if(app?.openTelegramLink)app.openTelegramLink(share);else location.assign(share);}
+export async function copyLink(value:string){try{await navigator.clipboard.writeText(value);}catch{const field=document.createElement('textarea');field.value=value;field.style.position='fixed';field.style.opacity='0';document.body.appendChild(field);field.select();const ok=document.execCommand('copy');field.remove();if(!ok)throw new Error('No se pudo copiar el enlace.');}}

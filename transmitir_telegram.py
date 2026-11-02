@@ -1,4 +1,5 @@
 import subprocess
+from stream_runtime import launch, health, stop_process, safe_tail, retry_delay, explicit_rejection
 import sys
 import os
 import json
@@ -36,68 +37,30 @@ def extract_referer(url):
     return "https://google.com/"
 
 def run_ffmpeg_stream(source_url, rtmp_destination, headers):
-    """
-    Perfil BLINDADO ANTI-CONGELAMIENTO para Telegram:
-    - SIN '-re' en la entrada: Permite absorber micro-fluctuaciones de internet sin cortar el buffer.
-    - Buffer elástico sin '+nobuffer': Evita caídas ante jitter de red.
-    - Keyframe forzado cada 2.0s exactos (-g 60 -keyint_min 60 -sc_threshold 0 -bf 0): Telegram nunca se congela esperando IDR.
-    - Bitrate ultra-estable (1500k, max 1800k, bufsize 3000k): Cero saturación de ancho de banda de subida.
-    - Sincronización continua de audio (aresample async): Evita congelamientos por desincronización A/V.
-    """
-    cmd = [
-        "ffmpeg",
-        "-user_agent", "IPTVSmartersPro",
-        "-thread_queue_size", "8192",
-        "-reconnect", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "2",
-        "-rw_timeout", "15000000",
-        "-fflags", "+genpts+igndts+discardcorrupt",
-        "-analyzeduration", "2000000",
-        "-probesize", "2000000",
-        "-live_start_index", "-3"
-    ]
-    if headers:
-        cmd.extend(["-headers", headers])
-
-    cmd.extend([
-        "-i", source_url,
-        "-vf", "fps=fps=30:round=near,setpts=N/(30*TB),scale=1280:720:flags=fast_bilinear",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-profile:v", "main",
-        "-level", "3.1",
-        "-threads", "0",
-        "-b:v", "1500k",
-        "-maxrate", "1800k",
-        "-bufsize", "3000k",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-sc_threshold", "0",
-        "-pix_fmt", "yuv420p",
-        "-af", "aresample=48000:async=1000:first_pts=0",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "48000",
-        "-ac", "2",
-        "-bsf:a", "aac_adtstoasc",
-        "-avoid_negative_ts", "make_zero",
-        "-flush_packets", "1",
-        "-max_interleave_delta", "0",
-        "-max_muxing_queue_size", "8192",
-        "-flvflags", "no_duration_filesize",
-        "-f", "flv",
-        rtmp_destination
-    ])
-    return subprocess.run(cmd)
+    """Emite con el perfil compartido de video y audio."""
+    proc, log, path = launch(source_url, headers, rtmp_destination, "stream_manual.log")
+    try:
+        while proc.poll() is None:
+            state, reason = health(proc)
+            if state == "stalled":
+                print(reason)
+                stop_process(proc)
+                break
+            time.sleep(2)
+        logs = safe_tail(path, (rtmp_destination,))
+        if logs:
+            print(logs)
+        return subprocess.CompletedProcess([], 77 if explicit_rejection(logs) else proc.returncode)
+    finally:
+        stop_process(proc)
+        log.close()
 
 def main():
     cfg = load_config()
     
     print("=" * 72)
-    print("       SISTEMA DE TRANSMISIÓN TELEGRAM (PERFIL ULTRA-FLUIDO)        ")
-    print("   [ 720p 30fps | Bitrate Estable 1800k | Keyframes 2s | Anti-Freeze ]   ")
+    print("       SISTEMA DE TRANSMISIÓN TELEGRAM CON MONITOR DE SALIDA        ")
+    print("   [ 720p 30fps | H.264 / AAC | Keyframes 2s | Recuperación técnica ]   ")
     print("=" * 72)
     print()
 
@@ -147,29 +110,37 @@ def main():
 
     print()
     print("-" * 72)
-    print("🚀 TRANSMISIÓN ULTRA-FLUIDA INICIADA:")
-    print("   • Resolución: 720p HD @ 30 FPS (Fluidez constante sin saturar subida)")
-    print("   • Keyframes forzados: cada 2 segundos (Estándar Telegram)")
-    print("   • Bitrate controlado: 1800 Kbps")
+    print("🚀 INICIANDO CODIFICADOR:")
+    print("   • Resolución: 720p HD @ 30 FPS")
+    print("   • Keyframes: cada 2 segundos")
+    print("   • Bitrate configurable con STREAM_VIDEO_KBPS (1200 por defecto)")
     print("   • Destino:", server_url + stream_key[:6] + "********")
     print("   • Para detener: Presiona Ctrl + C")
     print("-" * 72)
     print()
 
+    failures = 0
     while True:
         try:
+            started = time.monotonic()
             res = run_ffmpeg_stream(source_url, rtmp_destination, headers)
+            if res.returncode == 77:
+                print("Acceso rechazado explícitamente. Revisa el aviso de Telegram, la sala y las credenciales. Reintentos pausados.")
+                break
             if res.returncode != 0:
-                print("\n⚠️ Parpadeo en la señal. Reconectando en 2 segundos...")
-                time.sleep(2)
+                failures = 1 if time.monotonic() - started > 120 else failures + 1
+                delay = retry_delay(failures)
+                print(f"\n⚠️ Fallo técnico. Nuevo intento en {delay} segundos...")
+                time.sleep(delay)
             else:
                 break
         except KeyboardInterrupt:
             print("\n\n Transmisión detenida por el usuario.")
             break
         except Exception as e:
-            print(f"\n⚠️ Error ({e}). Reintentando conexión...")
-            time.sleep(2)
+            failures += 1
+            print(f"\n⚠️ Error ({type(e).__name__}). Reintentando conexión...")
+            time.sleep(retry_delay(failures))
 
 if __name__ == "__main__":
     main()

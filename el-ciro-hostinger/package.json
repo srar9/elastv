@@ -1,0 +1,6 @@
+{
+ "name":"el-ciro-hostinger-premium","version":"1.1.0","private":true,"type":"module",
+ "scripts":{"build":"node build.mjs","test":"node --test tests/telegram.test.ts tests/playback.test.ts","test:php":"php tests/core.php"},
+ "dependencies":{"react":"19.2.6","react-dom":"19.2.6","hls.js":"1.7.3"},
+ "devDependencies":{"esbuild":"0.28.0"}
+}

@@ -10,7 +10,10 @@ import unicodedata
 import requests
 import urllib.parse
 import hashlib
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
+from agenda_service import schedule, ScheduleUnavailable
+from channel_source import CHANNEL_NAMES, resolve_roja_source, resolve_player
 from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
 from team_helper import parse_match_teams, get_team_short, get_team_badge, is_match_live
@@ -136,6 +139,14 @@ CATEGORIES_META = {
     "otros": {"name": "Internacionales y España", "icon": "globe"},
 }
 
+# Provider-backed aliases use the same IDs in the web app and streaming bot.
+for _slug, _name in CHANNEL_NAMES.items():
+    _cat = "espn" if _slug.startswith("espn") else "fox" if _slug.startswith("fox") else "dsports" if _slug.startswith("dsports") else "latam"
+    TR_CHANNELS[_slug] = {"slug": _slug, "name": _name, "category": _cat}
+TR_CHANNELS["espn1"] = TR_CHANNELS["espn"]
+TR_CHANNELS["espn-1"] = TR_CHANNELS["espn"]
+TR_CHANNELS["winplus"] = TR_CHANNELS["winsports2"]
+
 # ==============================================================================
 # CACHÉ DE EVENTOS Y CANALES
 # ==============================================================================
@@ -159,7 +170,7 @@ def get_db():
 
 def init_db():
     try:
-        with get_db() as conn:
+        with closing(get_db()) as conn, conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS match_viewers (
                     match_id TEXT NOT NULL,
@@ -290,125 +301,13 @@ def format_viewers(count):
 # OBTENCIÓN DE AGENDA DE PARTIDOS DIRECTAMENTE DESDE https://tarjetarojaonline.info/
 # ==============================================================================
 def fetch_tarjetarojatv_schedule():
-    """
-    Obtiene la agenda oficial de partidos y eventos directamente desde
-    la API JSON de https://tarjetarojaonline.info/api/agenda.
-    Ultra-rápido, sin parseo HTML frágil y con resolución directa de embeds.
-    """
-    now = time.time()
-    if now - SCHEDULE_CACHE["timestamp"] < 90 and SCHEDULE_CACHE["events"]:
-        return SCHEDULE_CACHE["events"]
-
-    url = "https://tarjetarojaonline.info/api/agenda"
     try:
-        r = requests.get(url, headers=HEADERS_BASE, timeout=8)
-        if r.status_code != 200:
-            url_fallback = "https://tarjetarojatv.mobi/api/agenda"
-            r = requests.get(url_fallback, headers=HEADERS_BASE, timeout=8)
-            if r.status_code != 200:
-                return SCHEDULE_CACHE["events"]
-
-        raw = r.json()
-        events_list = raw.get("events", []) if isinstance(raw, dict) else raw
+        events = schedule.get()
+    except ScheduleUnavailable:
         events = []
-
-        for ev in events_list:
-            raw_title = ev.get("title", "").strip()
-            # Limpiar guiones especiales
-            raw_title = raw_title.replace("–", "-").replace("—", "-")
-
-            if ":" in raw_title:
-                comp, match_name = raw_title.split(":", 1)
-                comp = comp.strip()
-                match_name = match_name.strip()
-            else:
-                comp = ev.get("sport", "Deportes").title()
-                match_name = raw_title
-
-            # Convertir hora UTC a hora de Argentina (UTC-3)
-            date_str = ev.get("date", "")
-            time_str = ev.get("time", "")
-            try:
-                dt_utc = datetime.strptime(f"{date_str} {time_str[:5]}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                dt_arg = dt_utc.astimezone(timezone(timedelta(hours=-3)))
-                ev_time = dt_arg.strftime("%H:%M")
-            except Exception:
-                ev_time = time_str[:5] if time_str else ""
-
-            comp_img = ev.get("flag", "")
-
-            # Canales / Embeds de transmisión
-            channels = []
-            seen_slugs = set()
-            for idx, emb in enumerate(ev.get("embeds", [])):
-                iframe_url = emb.get("iframe", "").strip()
-                name = emb.get("name", f"Señal {idx+1}").strip()
-                lang = emb.get("lang", "Español").strip()
-
-                slug = ""
-                if "stream=" in iframe_url:
-                    m_s = re.search(r'stream=([a-zA-Z0-9_\-]+)', iframe_url)
-                    if m_s:
-                        slug = m_s.group(1).lower()
-
-                if not slug:
-                    target = f"{name} {iframe_url}".lower()
-                    if "espn2" in target:
-                        slug = "espn2"
-                    elif "espn3" in target:
-                        slug = "espn3"
-                    elif "espn4" in target:
-                        slug = "espn4"
-                    elif "espn" in target:
-                        slug = "espn"
-                    elif "tyc" in target:
-                        slug = "tycsports"
-                    elif "tnt" in target:
-                        slug = "tntsports"
-                    elif "tudn" in target:
-                        slug = "tudn"
-                    elif "dsport" in target:
-                        slug = "dsports"
-                    elif "america" in target:
-                        slug = "americatv"
-                    elif "telefe" in target:
-                        slug = "telefe"
-                    elif "caracol" in target:
-                        slug = "caracol"
-                    elif "canal5" in target or "canal 5" in target:
-                        slug = "canal5"
-                    elif "azteca" in target:
-                        slug = "azteca7"
-                    else:
-                        slug = f"ev{ev.get('id', '')}_{idx+1}_{slugify_match(name)}"
-
-                if slug not in seen_slugs:
-                    seen_slugs.add(slug)
-                    channels.append({
-                        "name": name,
-                        "slug": slug,
-                        "iframe": iframe_url,
-                        "lang": lang
-                    })
-
-            if match_name:
-                m_slug = slugify_match(match_name)
-                events.append({
-                    "id": ev.get("id"),
-                    "time": ev_time,
-                    "competition": comp,
-                    "comp_img": comp_img,
-                    "match": match_name,
-                    "match_slug": m_slug,
-                    "channels": channels
-                })
-
-        SCHEDULE_CACHE["timestamp"] = now
-        SCHEDULE_CACHE["events"] = events
-        return events
-    except Exception as e:
-        print("Error fetching tarjetarojatv schedule:", e)
-        return SCHEDULE_CACHE["events"]
+    SCHEDULE_CACHE["events"] = events
+    SCHEDULE_CACHE["timestamp"] = time.time()
+    return events
 
 # Alias para compatibilidad con código existente
 fetch_tarjetaroja_schedule = fetch_tarjetarojatv_schedule
@@ -421,7 +320,7 @@ def resolve_tarjetarojatv_stream(channel_slug):
     Resuelve el slug de canal extrayendo el enlace directo HLS (.m3u8)
     o el iframe purificado desde la infraestructura de tarjetarojatv.mobi / la18hd.su.
     """
-    clean_slug = channel_slug.strip().lower().replace("_", "-")
+    clean_slug = channel_slug.strip().lower()
     now = time.time()
 
     if clean_slug in STREAM_RESOLVER_CACHE:
@@ -432,6 +331,17 @@ def resolve_tarjetarojatv_stream(channel_slug):
     # Mapeo de alias a slug oficial de la18hd
     mapped_info = TR_CHANNELS.get(clean_slug)
     actual_slug = mapped_info["slug"] if mapped_info else clean_slug
+
+    stream, ref, status = resolve_roja_source(actual_slug)
+    if not stream:
+        fetch_tarjetarojatv_schedule()
+        registered = schedule.channel(clean_slug) or schedule.channel(actual_slug)
+        if registered:
+            stream, ref, status = resolve_player(registered["iframe"])
+    if stream:
+        data = {"slug": clean_slug, "stream_url": stream, "iframe_url": ref, "status": status}
+        STREAM_RESOLVER_CACHE[clean_slug] = {"timestamp": now, "data": data}
+        return data
 
     # Si viene con prefijo sintético de evento (ej: ev40363_4_espn-movil)
     m_ev = re.match(r'^ev\d+_\d+_(.*)', clean_slug)

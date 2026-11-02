@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!requirements.txt
+!entrypoint.py
+!bot_stream_multicanal.py
+!stream_runtime.py
+!channel_source.py
+!agenda_service.py
+!bot_catalog.py
+!assets/
+!assets/el-ciro.png

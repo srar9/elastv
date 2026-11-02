@@ -1,3 +1,8 @@
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -10,17 +15,25 @@ import threading
 import requests
 import base64
 import unicodedata
+import uuid
 from datetime import datetime, timezone, timedelta
+from stream_runtime import launch, health, stop_process, safe_tail, retry_delay, explicit_rejection
+from channel_source import resolve_roja_source, resolve_player, CHANNEL_NAMES, CHANNEL_PAGES
+from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ
+from bot_catalog import normalize_command, agenda_messages, pack_blocks, event_blocks, fold, telegram_parts
 
 # ==============================================================================
-TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE").strip()
+TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "9281285181:AAEo_hAjJo-zd537Kvz-f4QcU3iG-aUNGzo").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+BOT_USERNAME = "Tvelas_bot"
 CONFIG_FILE = "stream_config.json"
 
-ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
+ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "").strip()
 _env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
-# Garantizar que el ID del propietario siempre tenga acceso de administrador
-ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
+if _env_admins:
+    ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
+else:
+    ADMIN_USER_IDS = []
 
 HEADERS_BASE = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -141,6 +154,12 @@ for i in range(1, 16):
     name_d = f"Disney+ {i} HD"
     TR_CHANNELS[f"disney-{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
     TR_CHANNELS[f"disney{i}"] = {"slug": slug_canonical, "name": name_d, "cat": "disney"}
+
+# Keep the configured directory aligned with the currently supported provider.
+for _slug, _name in CHANNEL_NAMES.items():
+    TR_CHANNELS[_slug] = {"slug": _slug, "name": _name, "cat": "directorio"}
+TR_CHANNELS["espn1"] = TR_CHANNELS["espn"]
+TR_CHANNELS["winplus"] = TR_CHANNELS["winsports2"]
 
 def clean_arg(val):
     if not val:
@@ -310,7 +329,16 @@ def decode_streamxhd(html_content):
     except Exception:
         return None
 
+def public_source_label(value):
+    return "fuente-personalizada" if str(value).startswith(("http://", "https://")) else str(value)
+
+
+class SourceUnavailableError(RuntimeError):
+    """Safe diagnostic containing source status codes, never keys or signed URLs."""
+
+
 def _fetch_single_tr_slug(clean_slug):
+    failures = []
     # 1. Probar en la18hd.su (infraestructura oficial de tarjetarojatv.mobi)
     page_url_la = f"https://la18hd.su/vivo/canal.php?stream={clean_slug}"
     try:
@@ -324,8 +352,11 @@ def _fetch_single_tr_slug(clean_slug):
             if m_play:
                 stream_url = m_play.group(1).replace(r'\/', '/')
                 return stream_url, "https://la18hd.su/", "OK (la18hd directo)"
+            failures.append("Fuente principal: la página no contiene un enlace de video")
+        else:
+            failures.append(f"Fuente principal: HTTP {r_page.status_code}")
     except Exception as e:
-        print(f"Error fetching la18hd for {clean_slug}:", e)
+        failures.append(f"Fuente principal: {type(e).__name__}")
 
     # 2. Fallback a tarjetaroja.my si existiera
     page_url = f"https://tarjetaroja.my/stream/{clean_slug}"
@@ -354,13 +385,34 @@ def _fetch_single_tr_slug(clean_slug):
                     m_src = re.search(r'(?:source|file)\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', r_if.text)
                     if m_src:
                         return m_src.group(1).replace(r'\/', '/'), iframe_url, "OK (source/file directo)"
+                    failures.append("Fuente alternativa: el reproductor no contiene un enlace de video")
+                else:
+                    failures.append(f"Reproductor alternativo: HTTP {r_if.status_code}")
+            else:
+                failures.append("Fuente alternativa: la página no contiene un reproductor")
+        else:
+            failures.append(f"Fuente alternativa: HTTP {r_page.status_code}")
     except Exception as e:
-        pass
+        failures.append(f"Fuente alternativa: {type(e).__name__}")
 
-    return None, None, "No stream url"
+    return None, None, "; ".join(failures)
 
 def resolve_tarjetaroja_stream(channel_slug):
     clean_slug = channel_slug.strip().lower().replace("_", "-")
+
+    from channel_source import resolve_tarjeta_digital
+    td_url, td_ref, td_status = resolve_tarjeta_digital(clean_slug)
+    if td_url:
+        return td_url, td_ref, td_status
+
+    registered = schedule.channel(channel_slug)
+    if registered and channel_slug not in CHANNEL_PAGES:
+        event_url, event_ref, event_status = resolve_player(registered["iframe"])
+        if event_url:
+            return event_url, event_ref, event_status
+    new_url, new_ref, new_status = resolve_roja_source(clean_slug)
+    if new_url:
+        return new_url, new_ref, new_status
     
     url, ref, st = _fetch_single_tr_slug(clean_slug)
     if url:
@@ -379,88 +431,53 @@ def resolve_tarjetaroja_stream(channel_slug):
         if url_alt2:
             return url_alt2, ref_alt2, st_alt2
 
-    return None, None, st
+    return None, None, f"{new_status}; {st}"
 
 def resolve_stream_source(channel_input):
     clean_in = clean_arg(channel_input)
+
+    if "tarjetadigital.club" in clean_in or "la18hd.su" in clean_in:
+        from channel_source import resolve_tarjeta_digital
+        td_url, td_ref, td_status = resolve_tarjeta_digital(clean_in)
+        if td_url:
+            headers_str = f"Referer: {td_ref}\r\nOrigin: https://la18hd.su\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+            return td_url, headers_str, "Tarjeta Digital en vivo", "tarjeta-digital", True
 
     if clean_in.startswith("http://") or clean_in.startswith("https://"):
         headers_str = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
         return clean_in, headers_str, "Canal Personalizado", clean_in, True
 
-    resolved_slug, channel_name = resolve_channel_input(clean_in)
+    candidate_slug, candidate_name = resolve_channel_input(clean_in)
+    if candidate_slug not in CHANNEL_PAGES and not schedule.channel(clean_in):
+        try:
+            schedule.get()
+        except ScheduleUnavailable:
+            pass
+    registered = schedule.channel(clean_in) or schedule.channel(candidate_slug)
+    if registered:
+        resolved_slug, channel_name = registered["slug"], registered["name"]
+    else:
+        resolved_slug, channel_name = candidate_slug, candidate_name
 
     stream_url, iframe_ref, status_info = resolve_tarjetaroja_stream(resolved_slug)
     if stream_url:
-        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://la18hd.su/\r\n"
-        headers_str = f"{ref_header}User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+        origin_line = ""
+        if (iframe_ref and "la18hd" in str(iframe_ref)) or "fubo" in str(stream_url) or "la18hd" in str(stream_url):
+            origin_line = "Origin: https://la18hd.su\r\n"
+        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://tarjetadigital.club/\r\n"
+        headers_str = f"{ref_header}{origin_line}User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
         return stream_url, headers_str, channel_name, resolved_slug, True
 
-    return None, None, channel_name, resolved_slug, False
+    raise SourceUnavailableError(status_info or "El origen no entregó un enlace de video")
 
 # ==============================================================================
 # MOTOR DE TRANSMISIÓN ULTRA-FLUIDO (REAL-TIME / ZERO B-FRAMES / SINCRONIZACIÓN PERFECTA)
 # ==============================================================================
 def launch_ffmpeg_process(source_url, headers, destination, stream_id):
-    """
-    Motor de emisión ultra-fluido con sincronización A/V automática perfecta:
-    1. Cadencia Real-Time (-re): lee y emite a 1.00x de velocidad constante.
-    2. Sincronización A/V Automática (-copyts -start_at_zero -af aresample=async=1):
-       Alinea el audio y video con el reloj de la señal en tiempo cero. 
-       Elimina al 100% el desfase sin importar el canal o la señal.
-    3. Audio Broadcast 48kHz (-ar 48000): tasa estándar para evitar desincronización
-       por diferencias de muestreo entre canales de 44.1kHz y 48kHz.
-    4. Zero B-Frames (-bf 0) y Perfil Baseline: decodificación instantánea en Telegram.
-    5. Keyframes cada 2 segundos (-g 60 -keyint_min 60 -sc_threshold 0).
-    """
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-reconnect", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "3",
-        "-rw_timeout", "15000000",
-        "-fflags", "+genpts+igndts+discardcorrupt",
-        "-analyzeduration", "2000000",
-        "-probesize", "2000000"
-    ]
-
-    if headers:
-        cmd.extend(["-headers", headers])
-
-    cmd.extend([
-        "-i", source_url,
-        "-copyts",
-        "-start_at_zero",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-profile:v", "baseline",
-        "-level", "3.1",
-        "-bf", "0",
-        "-r", "30",
-        "-fps_mode", "cfr",
-        "-b:v", "1200k",
-        "-maxrate", "1500k",
-        "-bufsize", "2500k",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-sc_threshold", "0",
-        "-pix_fmt", "yuv420p",
-        "-af", "aresample=async=1",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "48000",
-        "-ac", "2",
-        "-flvflags", "no_duration_filesize",
-        "-f", "flv",
-        destination
-    ])
-
-    log_file = f"/tmp/stream_{stream_id}.log" if os.name != 'nt' else f"stream_{stream_id}.log"
-    out_f = open(log_file, "w", encoding="utf-8", errors="ignore")
-    proc = subprocess.Popen(cmd, stdout=out_f, stderr=out_f)
-    return proc, out_f, log_file
+    """Launch the shared, bounded 720p profile with machine-readable progress."""
+    log_name = f"stream_{stream_id}_{uuid.uuid4().hex[:12]}.log"
+    log_file = os.path.join("/tmp", log_name) if os.name != "nt" else log_name
+    return launch(source_url, headers, destination, log_file)
 
 # ==============================================================================
 # GESTIÓN MULTI-PANTALLA ILIMITADA (1, 2, 3, 4, 5, ...)
@@ -469,7 +486,17 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
     clean_channel_input = clean_arg(channel_input)
     clean_key = clean_arg(stream_key)
 
-    source_url, headers_str, channel_name, resolved_slug, ok = resolve_stream_source(clean_channel_input)
+    try:
+        source_url, headers_str, channel_name, resolved_slug, ok = resolve_stream_source(clean_channel_input)
+    except SourceUnavailableError as exc:
+        return False, (
+            f"❌ <b>No se pudo obtener la señal de {html.escape(clean_channel_input)}.</b>\n\n"
+            f"<b>Diagnóstico del origen:</b> {html.escape(str(exc))}\n\n"
+            "La transmisión no llegó a iniciarse. Un HTTP 403 indica que el servidor de origen "
+            "rechazó la solicitud; no es un error del logo ni del codificador.\n\n"
+            "Puedes probar un enlace directo de una fuente que tengas autorizada:\n"
+            "<code>/stream URL_DIRECTA_M3U8_O_TS CLAVE_DE_TELEGRAM</code>"
+        )
     if not ok or not source_url:
         return False, (
             f"❌ No se pudo conectar a la señal de <b>{html.escape(clean_channel_input)}</b> en ElCiro.\n\n"
@@ -478,68 +505,27 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
 
     destination = clean_key if clean_key.startswith(("rtmp://", "rtmps://")) else f"rtmps://dc4-1.rtmp.t.me/s/{clean_key}"
 
-    target_slot = None
+    retired = []
     with stream_lock:
+        target_slot = None
         if requested_slot and str(requested_slot).isdigit() and int(requested_slot) >= 1:
             target_slot = str(int(requested_slot))
-            if target_slot in active_streams:
-                old_info = active_streams[target_slot]
-                old_info["auto_restart"] = False
-                old_proc = old_info.get("process")
-                if old_proc:
-                    try:
-                        old_proc.terminate()
-                        try:
-                            old_proc.wait(timeout=1.5)
-                        except subprocess.TimeoutExpired:
-                            old_proc.kill()
-                            old_proc.wait(timeout=1)
-                    except Exception:
-                        try:
-                            old_proc.kill()
-                        except Exception:
-                            pass
-                try:
-                    if old_info.get("log_handle"):
-                        old_info["log_handle"].close()
-                except Exception:
-                    pass
-                del active_streams[target_slot]
-
         if not target_slot:
-            for sid, info in list(active_streams.items()):
-                if info.get("key") == clean_key:
-                    target_slot = sid
-                    info["auto_restart"] = False
-                    old_proc = info.get("process")
-                    if old_proc:
-                        try:
-                            old_proc.terminate()
-                            try:
-                                old_proc.wait(timeout=1.5)
-                            except subprocess.TimeoutExpired:
-                                old_proc.kill()
-                                old_proc.wait(timeout=1)
-                        except Exception:
-                            try:
-                                old_proc.kill()
-                            except Exception:
-                                pass
-                    try:
-                        if info.get("log_handle"):
-                            info["log_handle"].close()
-                    except Exception:
-                        pass
-                    del active_streams[sid]
-                    break
-
+            target_slot = next((sid for sid, info in active_streams.items()
+                                if info.get("destination") == destination), None)
         if not target_slot:
             cand = 1
             while str(cand) in active_streams:
                 cand += 1
             target_slot = str(cand)
+        # Publishing twice to the same Telegram destination can disconnect a stream.
+        for sid, info in list(active_streams.items()):
+            if sid == target_slot or info.get("destination") == destination:
+                info["auto_restart"] = False
+                retired.append(info)
+                del active_streams[sid]
 
-        active_streams[target_slot] = {
+        reservation = {
             "channel_input": clean_channel_input,
             "resolved_slug": resolved_slug,
             "channel_name": channel_name,
@@ -552,59 +538,69 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
             "log_file": None,
             "chat_id": chat_id,
             "start_time": time.time(),
-            "last_active_time": time.time(),
-            "last_log_size": 0,
             "auto_restart": True,
             "restarts": 0,
+            "launching": True,
+            "total_restarts": 0,
             "status": "starting"
         }
 
-    proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot)
+        active_streams[target_slot] = reservation
+
+    for old_info in retired:
+        stop_process(old_info.get("process"))
+        if old_info.get("log_handle"):
+            old_info["log_handle"].close()
+
+    try:
+        proc, out_f, log_file = launch_ffmpeg_process(source_url, headers_str, destination, target_slot)
+    except Exception as exc:
+        with stream_lock:
+            if active_streams.get(target_slot) is reservation:
+                del active_streams[target_slot]
+        return False, "❌ No se pudo iniciar FFmpeg (" + type(exc).__name__ + "). Comprueba la instalación y los permisos."
 
     with stream_lock:
-        if target_slot in active_streams and active_streams[target_slot].get("key") == clean_key:
-            active_streams[target_slot]["process"] = proc
-            active_streams[target_slot]["log_handle"] = out_f
-            active_streams[target_slot]["log_file"] = log_file
-            active_streams[target_slot]["status"] = "running"
-            active_streams[target_slot]["last_active_time"] = time.time()
-
-    time.sleep(3.0)
-    poll_res = proc.poll()
-    if poll_res is not None:
-        try:
+        if active_streams.get(target_slot) is reservation and reservation.get("auto_restart"):
+            reservation.update(process=proc, log_handle=out_f, log_file=log_file, launching=False)
+        else:
+            stop_process(proc)
             out_f.close()
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                logs = f.read()[-600:]
-        except Exception:
-            logs = "Sin logs"
+            return False, "ℹ️ Solicitud cancelada o reemplazada."
 
+    time.sleep(3)
+    state, reason = health(proc)
+    if state == "failed":
+        logs = safe_tail(log_file, (clean_key,))
         with stream_lock:
-            if target_slot in active_streams and active_streams[target_slot].get("process") == proc:
-                del active_streams[target_slot]
-
-        if "Input/output error" in logs or "Error opening output" in logs or "Error number -138" in logs or "Connection to tcp://" in logs:
-            return False, (
-                "⚠️ <b>Telegram rechazó la conexión de transmisión.</b>\n\n"
-                "👉 <b>Motivo:</b> La sala en vivo no está abierta en tu canal o la clave es incorrecta.\n\n"
-                "<b>Pasos obligatorios para transmitir en Telegram:</b>\n"
-                "1. Abre tu canal o grupo de Telegram.\n"
-                "2. Toca en el menú de arriba (<code>...</code>) $\\rightarrow$ <b>\"Transmitir con...\"</b>.\n"
-                "3. Mantén abierta la ventana que dice <i>\"Listo para transmitir\"</i> o <i>\"Esperando señal...\"</i>.\n"
-                "4. Vuelve a enviar el comando: <code>/stream " + resolved_slug + " " + clean_key + "</code>"
-            )
-
-        return False, f"❌ <b>Error al conectar con Telegram RTMP</b> (Código: {poll_res})\n\n<code>{html.escape(logs)}</code>"
+            if active_streams.get(target_slot) is not reservation:
+                return False, "ℹ️ Solicitud cancelada o reemplazada."
+            reservation["last_error"] = reason
+            if explicit_rejection(logs):
+                out_f.close()
+                reservation["auto_restart"] = False
+                reservation["status"] = "rejected"
+                return False, (
+                    "⚠️ <b>El servidor rechazó el acceso.</b> Se pausaron los reintentos.\n"
+                    "Revisa el aviso de Telegram, la sala, la URL del servidor y la clave. "
+                    "Este registro no permite determinar si existe una restricción.\n"
+                    f"<code>{html.escape(logs)}</code>"
+                )
+        return True, (
+            f"🔄 <b>Pantalla #{target_slot}: recuperación automática pendiente.</b>\n"
+            f"{html.escape(reason)}. Usa <code>/status</code> para consultar el diagnóstico.\n"
+            f"<code>{html.escape(logs)}</code>"
+        )
 
     active_count = len(active_streams)
     return True, (
-        f"✅ <b>TRANSMISIÓN EN VIVO INICIADA (PANTALLA #{target_slot})</b>\n\n"
-        f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(resolved_slug)}</code>]\n"
-        f"⚡ <b>Rendimiento:</b> Ultra-Fluido Zero B-Frames (0% Tirones / 100% Suave)\n"
+        f"📡 <b>CODIFICADOR INICIADO (PANTALLA #{target_slot})</b>\n\n"
+        f"📺 <b>Canal:</b> {html.escape(channel_name)} [<code>{html.escape(public_source_label(resolved_slug))}</code>]\n"
+        f"⚡ <b>Rendimiento:</b> 720p / 30 FPS / H.264 y AAC / monitor de avance\n"
         f"🌐 <b>Servidor:</b> ElCiro Nativo\n"
-        f"🔑 <b>Stream Key:</b> <code>{clean_key[:12]}...</code>\n"
-        f"📡 <b>Pantallas Activas:</b> {active_count} simultáneas en emisión\n"
-        f"⏱️ <b>Sincronización Audio/Video:</b> 100% Automática (Cero Desfase)\n\n"
+        f"🩺 <b>Diagnóstico:</b> <code>/status</code>\n"
+        f"📡 <b>Pantallas supervisadas:</b> {active_count}\n"
+        f"⏱️ <b>Sincronización Audio/Video:</b> Corrección automática de audio\n\n"
         f"🛑 <i>Para detener esta pantalla:</i> <code>/stop {target_slot}</code>\n"
         f"🛑 <i>Para detener todas las pantallas:</i> <code>/stopall</code>"
     )
@@ -732,393 +728,230 @@ def stop_all_streams():
         )
 
 # ==============================================================================
-# SUPERVISOR INFINITO Y WATCHDOG ANTI-CONGELAMIENTO (CERO CAÍDAS)
+# SUPERVISOR DE PROGRESO Y RECUPERACIÓN DE FALLOS TÉCNICOS
 # ==============================================================================
+def recover_stream(sid, info):
+    """Resolve and relaunch outside the global lock so /stop remains responsive."""
+    proc = None
+    log_handle = None
+    try:
+        stop_process(info.get("process"))
+        if info.get("log_handle"):
+            info["log_handle"].close()
+        with stream_lock:
+            if active_streams.get(sid) is not info or not info.get("auto_restart"):
+                return
+        slug = info.get("resolved_slug") or info["channel_input"]
+        source, headers, name, resolved_slug, ok = resolve_stream_source(slug)
+        if not ok or not source:
+            raise RuntimeError("La fuente no está disponible; se volverá a intentar")
+        with stream_lock:
+            if active_streams.get(sid) is not info or not info.get("auto_restart"):
+                return
+        proc, log_handle, log_file = launch_ffmpeg_process(source, headers, info["destination"], sid)
+        with stream_lock:
+            if active_streams.get(sid) is info and info.get("auto_restart"):
+                info.update(process=proc, log_handle=log_handle, log_file=log_file,
+                            source_url=source, headers_str=headers, status="starting")
+                proc = None  # Ownership transferred to the active slot.
+                log_handle = None
+    except SourceUnavailableError as exc:
+        with stream_lock:
+            if active_streams.get(sid) is info:
+                info["last_error"] = str(exc)
+                info["status"] = "reconnecting"
+    except Exception as exc:
+        # Exception strings may contain credentials or signed source URLs.
+        with stream_lock:
+            if active_streams.get(sid) is info:
+                info["last_error"] = "No se pudo preparar la señal (" + type(exc).__name__ + ")"
+                info["status"] = "reconnecting"
+    finally:
+        if proc is not None:
+            stop_process(proc)
+        if log_handle is not None:
+            log_handle.close()
+        with stream_lock:
+            if active_streams.get(sid) is info:
+                info["recovering"] = False
+                info["next_retry"] = time.monotonic() + retry_delay(info.get("restarts", 1))
+
+
+def supervise_once():
+    now = time.monotonic()
+    with stream_lock:
+        for sid, info in list(active_streams.items()):
+            if not info.get("auto_restart") or info.get("launching") or info.get("recovering"):
+                continue
+            proc = info.get("process")
+            state, reason = health(proc, now)
+            info["status"] = state
+            if state in ("starting", "running"):
+                if state == "running" and now - proc.stream_progress.snapshot()["started"] > 120:
+                    info["restarts"] = 0
+                continue
+            info["last_error"] = reason
+            logs = safe_tail(info.get("log_file"), (info.get("key"),))
+            if state == "failed" and explicit_rejection(logs):
+                if info.get("log_handle"):
+                    info["log_handle"].close()
+                info["auto_restart"] = False
+                info["status"] = "rejected"
+                info["last_error"] = "Acceso rechazado explícitamente. Revisa el aviso, la sala y las credenciales antes de iniciar otra vez."
+                continue
+            if now < info.get("next_retry", 0):
+                continue
+            info["restarts"] = info.get("restarts", 0) + 1
+            info["total_restarts"] = info.get("total_restarts", 0) + 1
+            info["status"] = "reconnecting"
+            info["recovering"] = True
+            threading.Thread(target=recover_stream, args=(sid, info), daemon=True).start()
+
+
 def supervisor_thread():
     while True:
-        time.sleep(3.5)
-        now = time.time()
-        
-        with stream_lock:
-            for sid, info in list(active_streams.items()):
-                if not info.get("auto_restart", False):
-                    continue
+        time.sleep(3)
+        try:
+            supervise_once()
+        except Exception as exc:
+            print("[Supervisor] Error de monitorización:", type(exc).__name__)
 
-                proc = info.get("process")
-                log_file = info.get("log_file")
-                
-                is_stalled = False
-                if log_file and os.path.exists(log_file):
-                    try:
-                        cur_size = os.path.getsize(log_file)
-                        if cur_size > info.get("last_log_size", 0):
-                            info["last_log_size"] = cur_size
-                            info["last_active_time"] = now
-                        elif now - info.get("last_active_time", now) > 22:
-                            is_stalled = True
-                    except Exception:
-                        pass
-
-                needs_restart = False
-                if proc is None:
-                    needs_restart = True
-                elif proc.poll() is not None:
-                    needs_restart = True
-                elif is_stalled:
-                    needs_restart = True
-                    print(f"[Watchdog] Pantalla #{sid} detectada congelada. Forzando reinicio...")
-                    try:
-                        proc.kill()
-                        proc.wait(timeout=1)
-                    except Exception:
-                        pass
-
-                if not needs_restart:
-                    if now - info.get("start_time", 0) > 30 and info.get("restarts", 0) > 0:
-                        info["restarts"] = 0
-                    continue
-
-                last_restart_attempt = info.get("last_restart_attempt", 0)
-                backoff_time = min(10, 4 + (info.get("restarts", 0) // 3) * 2)
-                if now - last_restart_attempt < backoff_time:
-                    continue
-
-                info["last_restart_attempt"] = now
-                info["restarts"] = info.get("restarts", 0) + 1
-                info["status"] = "reconnecting"
-
-                slug = info.get("resolved_slug") or info.get("channel_input")
-                dest = info['key'] if info['key'].startswith(('rtmp://', 'rtmps://')) else f"rtmps://dc4-1.rtmp.t.me/s/{info['key']}"
-
-                src_url, headers_str, ch_name, res_slug, ok = resolve_stream_source(slug)
-                if ok and src_url:
-                    try:
-                        if info.get("log_handle"):
-                            info["log_handle"].close()
-                    except Exception:
-                        pass
-
-                    new_proc, new_out_f, new_log_file = launch_ffmpeg_process(src_url, headers_str, dest, sid)
-                    info["process"] = new_proc
-                    info["log_handle"] = new_out_f
-                    info["log_file"] = new_log_file
-                    info["status"] = "running"
-                    info["last_active_time"] = time.time()
-                    info["last_log_size"] = 0
-                    print(f"[Supervisor] Pantalla #{sid} ({ch_name}) reanudada exitosamente con nuevo token.")
-
-t_super = threading.Thread(target=supervisor_thread, daemon=True)
-t_super.start()
 
 # ==============================================================================
 # AGENDA DINÁMICA DE PARTIDOS (100% TARJETA ROJA DIRECTA)
 # ==============================================================================
-MATCHES_AGENDA_CACHE = {"timestamp": 0, "messages": []}
-
-def slugify_match_bot(match_title):
-    if not match_title:
-        return ""
-    s = unicodedata.normalize('NFKD', str(match_title)).encode('ASCII', 'ignore').decode('utf-8')
-    s = re.sub(r'[^a-zA-Z0-9\s\-]', '', s).strip().lower()
-    s = re.sub(r'[\s\-]+', '-', s)
-    return s
-
 def fetch_tarjetaroja_schedule():
-    url = "https://tarjetarojatv.mobi/api/agenda"
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://tarjetarojatv.mobi/"
-        }
-        r = requests.get(url, headers=headers, timeout=8)
-        if r.status_code != 200:
-            return []
+    return schedule.get()
 
-        raw = r.json()
-        events_list = raw.get("events", []) if isinstance(raw, dict) else raw
+
+def get_live_matches_agenda(curr_key=None):
+    try:
+        events = fetch_tarjetaroja_schedule()
+        return agenda_messages(events, schedule.stale)
+    except ScheduleUnavailable as exc:
+        return ["⚠️ <b>La agenda no está disponible.</b> " + html.escape(str(exc)) +
+                "\nNo se mostrarán partidos de otro día. Puedes consultar <code>/canales</code> o volver a intentar."]
+
+
+def channel_catalog():
+    catalog = {slug: dict(name=name, slug=slug, group="Directorio del proveedor")
+               for slug, name in CHANNEL_NAMES.items()}
+    try:
+        events = fetch_tarjetaroja_schedule()
+    except ScheduleUnavailable:
         events = []
+    for event in events:
+        for channel in event["channels"]:
+            catalog.setdefault(channel["slug"], dict(channel, group="Señales de la agenda de hoy"))
+    for info in TR_CHANNELS.values():
+        catalog.setdefault(info["slug"], dict(info, group="Otros configurados; sin comprobar"))
+    return sorted(catalog.values(), key=lambda c: (c["group"], fold(c["name"])))
 
-        for ev in events_list:
-            raw_title = ev.get("title", "").strip().replace("–", "-").replace("—", "-")
-            if ":" in raw_title:
-                comp, match_name = raw_title.split(":", 1)
-                comp = comp.strip()
-                match_name = match_name.strip()
-            else:
-                comp = ev.get("sport", "Deportes").title()
-                match_name = raw_title
 
-            date_str = ev.get("date", "")
-            time_str = ev.get("time", "")
-            try:
-                dt_utc = datetime.strptime(f"{date_str} {time_str[:5]}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                dt_arg = dt_utc.astimezone(timezone(timedelta(hours=-3)))
-                ev_time = dt_arg.strftime("%H:%M")
-            except Exception:
-                ev_time = time_str[:5] if time_str else ""
+def get_sports_menu_messages(curr_key=None, query=""):
+    channels = channel_catalog()
+    if query:
+        channels = [ch for ch in channels if fold(query) in fold(ch["name"] + " " + ch["slug"])]
+    blocks = [f"📺 <b>CANALES EL CIRO · {len(channels)} señales</b>\n"
+              "La lista no garantiza disponibilidad. Los comandos usan tu clave guardada; no la publican."]
+    group = None
+    for channel in channels:
+        if channel["group"] != group:
+            group = channel["group"]
+            blocks.append("<b>" + html.escape(group) + "</b>")
+        blocks.append(f"📺 {html.escape(channel['name'][:100])} · <code>/stream {html.escape(channel['slug'])}</code>")
+    if not channels:
+        blocks.append("No hay canales que coincidan con esa búsqueda.")
+    messages = pack_blocks(blocks)
+    return [f"📄 Canales {i}/{len(messages)}\n\n{message}" for i, message in enumerate(messages, 1)]
 
-            channels = []
-            seen_slugs = set()
-            for idx, emb in enumerate(ev.get("embeds", [])):
-                iframe_url = emb.get("iframe", "").strip()
-                name = emb.get("name", f"Señal {idx+1}").strip()
 
-                slug = None
-                if "stream=" in iframe_url:
-                    m_s = re.search(r'stream=([a-zA-Z0-9_\-]+)', iframe_url)
-                    if m_s:
-                        slug = m_s.group(1).lower()
-
-                if not slug:
-                    # Mapear señales espejo (móvil, web) a canales conocidos
-                    target = f"{name} {iframe_url}".lower()
-                    if "espn2" in target:
-                        slug = "espn2"
-                    elif "espn3" in target:
-                        slug = "espn3"
-                    elif "espn4" in target:
-                        slug = "espn4"
-                    elif "espn" in target:
-                        slug = "espn"
-                    elif "tyc" in target:
-                        slug = "tycsports"
-                    elif "tnt" in target:
-                        slug = "tntsports"
-                    elif "tudn" in target:
-                        slug = "tudn"
-                    elif "dsport" in target:
-                        slug = "dsports"
-                    elif "america" in target:
-                        slug = "americatv"
-                    elif "telefe" in target:
-                        slug = "telefe"
-                    elif "caracol" in target:
-                        slug = "caracol"
-                    elif "canal5" in target or "canal 5" in target:
-                        slug = "canal5"
-                    elif "azteca" in target:
-                        slug = "azteca7"
-
-                # Solo incluir canales con señal directa reproducible por FFmpeg y evitar duplicados
-                if slug and slug not in seen_slugs:
-                    seen_slugs.add(slug)
-                    channels.append({"name": name, "slug": slug, "iframe": iframe_url})
-
-            if match_name:
-                events.append({
-                    "time": ev_time,
-                    "competition": comp,
-                    "match": match_name,
-                    "channels": channels
-                })
-
-        return events
-    except Exception as e:
-        print("Error fetching tarjetarojatv schedule:", e)
-        return []
-
-def get_live_matches_agenda(curr_key):
-    global MATCHES_AGENDA_CACHE
-    now = time.time()
-    if now - MATCHES_AGENDA_CACHE["timestamp"] < 90 and MATCHES_AGENDA_CACHE["messages"]:
-        return MATCHES_AGENDA_CACHE["messages"]
-
+def search_tarjetaroja(query, curr_key=None):
+    query = query.strip()[:200]
+    q = fold(query)
     try:
-        tr_events = fetch_tarjetaroja_schedule()
-        if tr_events:
-            agenda_blocks = []
-            for ev in tr_events:
-                channels = ev.get("channels", [])
-                if not channels:
-                    continue
+        events = fetch_tarjetaroja_schedule()
+        matches = [ev for ev in events if q in fold(ev["match"] + " " + ev["competition"])]
+        notice = ""
+    except ScheduleUnavailable:
+        matches = []
+        notice = "⚠️ La agenda no está disponible; se muestran coincidencias del directorio."
+    channels = [ch for ch in channel_catalog() if q in fold(ch["name"] + " " + ch["slug"])]
+    blocks = [f"🔎 <b>BÚSQUEDA: {html.escape(query)}</b> · {len(matches)} eventos / {len(channels)} canales"]
+    if notice:
+        blocks.append(notice)
+    blocks.extend(event_blocks(matches))
+    blocks.extend(f"📺 {html.escape(ch['name'][:100])} · <code>/stream {html.escape(ch['slug'])}</code>" for ch in channels)
+    if not matches and not channels:
+        blocks.append("No se encontraron coincidencias. Prueba /partidos o /canales.")
+    return "\n\n".join(blocks)
 
-                time_str = f"[{ev['time']}] " if ev['time'] else ""
-                block = f"🏆 <b>{time_str}{html.escape(ev['competition'])}: {html.escape(ev['match'])}</b>\n"
-                
-                seen_slugs = set()
-                for ch in channels:
-                    slug = ch["slug"]
-                    if slug in seen_slugs:
-                        continue
-                    seen_slugs.add(slug)
 
-                    cname = ch["name"]
-                    if slug in TR_CHANNELS:
-                        cname = TR_CHANNELS[slug]["name"]
+HELP_TEXT = (
+    "⚽ <b>TV ELAS · TRANSMISIÓN TELEGRAM</b>\n"
+    "<i>Soporte completo de partidos y canales desde tarjetadigital.club</i>\n\n"
+    "<code>/partidos</code> · Agenda de partidos de hoy con botón de emisión rápida.\n"
+    "<code>/canales</code> · Directorio de canales (Tarjeta Digital, ESPN, Fox, etc.).\n"
+    "<code>/canales espn</code> · Filtrar canales por nombre.\n"
+    "<code>/buscar equipo o liga</code> · Buscar partidos o señales en vivo.\n"
+    "<code>/stream CANAL</code> · Transmitir canal (ej: <code>/stream espnmx</code>, <code>/stream tudn</code>).\n"
+    "<code>/c1 CANAL</code> · Transmitir en Canal / Pantalla 1 (ej: <code>/c1 espnmx</code>).\n"
+    "<code>/c2 CANAL</code> · Transmitir en Canal / Pantalla 2 (ej: <code>/c2 foxsportsmx</code>).\n"
+    "<code>/stream URL</code> · Transmitir URL de tarjetadigital.club o .m3u8 directo.\n"
+    "<code>/status</code> · Estado técnico y tiempo de emisiones activas.\n"
+    "<code>/stop 1</code> · Detener pantalla 1.\n"
+    "<code>/stopall</code> · Detener todas las pantallas activas.\n"
+    "<code>/key NUEVA_CLAVE</code> · Configurar Stream Key de Telegram.\n"
+    "<code>/id</code> · Consultar tu ID de Telegram.\n"
+    "<code>/ayuda</code> · Mostrar este menú de ayuda.\n\n"
+    "Alias: /agenda, /hoy, /deportes, /menu."
+)
+BOT_COMMANDS = [
+    ("partidos", "Agenda completa de hoy · hora de Venezuela"), ("canales", "Canales y señales publicadas"),
+    ("buscar", "Buscar equipos, ligas o canales"), ("espn", "Canales ESPN"),
+    ("stream", "Iniciar transmisión"), ("status", "Estado de transmisiones"),
+    ("stop", "Detener una pantalla"), ("stopall", "Detener todas las pantallas"),
+    ("key", "Configurar clave de emisión"), ("id", "Consultar tu identificador"),
+    ("ayuda", "Ver todos los comandos"),
+]
 
-                    block += f"• 📺 <i>{html.escape(cname)}:</i>\n  <code>/stream {slug} {curr_key}</code>\n"
-                
-                agenda_blocks.append(block)
-
-            if agenda_blocks:
-                messages = []
-                header = (
-                    "📅 <b>AGENDA DE PARTIDOS DE HOY (ElCiro - EN VIVO)</b>\n"
-                    "📢 <b>Canal Oficial:</b> @elasdelfutbol\n"
-                    "<i>Señales exactas verificadas canal por canal en directo:</i>\n\n"
-                )
-                current_msg = header
-                for b in agenda_blocks:
-                    if len(current_msg) + len(b) + 2 > 3500:
-                        messages.append(current_msg.strip())
-                        current_msg = b + "\n"
-                    else:
-                        current_msg += b + "\n"
-
-                if current_msg:
-                    messages.append(current_msg.strip())
-
-                MATCHES_AGENDA_CACHE["timestamp"] = now
-                MATCHES_AGENDA_CACHE["messages"] = messages
-                return messages
-    except Exception as e:
-        print("Error generando agenda deportiva:", e)
-
-    return get_sports_menu_messages(curr_key)
-
-# ==============================================================================
-# DIRECTORIO COMPLETO DE CANALES (/canales) - 63 SEÑALES TARJETA ROJA
-# ==============================================================================
-def get_sports_menu_messages(curr_key):
-    msg1 = (
-        "🏆 <b>DIRECTORIO DE CANALES (ElCiro - EN VIVO) [Parte 1/3]</b>\n\n"
-        "✨ <b>SUITE DISNEY+ EVENTOS (FÚTBOL & CHAMPIONS EN DIRECTO):</b>\n"
-        f"• 🏆 <b>Disney 1 HD:</b> <code>/stream disney-1 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 2 HD:</b> <code>/stream disney-2 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 3 HD:</b> <code>/stream disney-3 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 4 HD:</b> <code>/stream disney-4 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 5 HD:</b> <code>/stream disney-5 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 6 HD:</b> <code>/stream disney-6 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 7 HD:</b> <code>/stream disney-7 {curr_key}</code>\n"
-        f"• 🏆 <b>Disney 8 al 15:</b> <code>/stream disney8 {curr_key}</code> a <code>disney15</code>\n\n"
-        "🎬 <b>SUITE MAX (HBO / WARNER MULTISEÑAL EN VIVO):</b>\n"
-        f"• ⚽ <b>MAX 1 HD:</b> <code>/stream max1 {curr_key}</code>\n"
-        f"• ⚽ <b>MAX 2 HD:</b> <code>/stream max2 {curr_key}</code>\n"
-        f"• ⚽ <b>MAX 3 HD:</b> <code>/stream max3 {curr_key}</code>\n\n"
-        "🌎 <b>SUITE COMPLETA ESPN SUR:</b>\n"
-        f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code>\n"
-        f"• 🚴 <b>ESPN 3 HD (Ciclismo / Tenis):</b> <code>/stream espn3 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 4 HD (Sur):</b> <code>/stream espn4 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN 5 HD (Sur):</b> <code>/stream espn5 {curr_key}</code>\n"
-        f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
-        f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>"
-    )
-
-    msg2 = (
-        "🏆 <b>DIRECTORIO DE CANALES (ElCiro) [Parte 2/3]</b>\n\n"
-        "🦊 <b>SUITE FOX SPORTS:</b>\n"
-        f"• ⚽ <b>Fox Sports 1 Argentina:</b> <code>/stream fox1ar {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports 2 Argentina:</b> <code>/stream fox2ar {curr_key}</code>\n"
-        f"• ⚽ <b>Fox ONE MX:</b> <code>/stream foxone {curr_key}</code>\n"
-        f"• ⚽ <b>FOX One 2:</b> <code>/stream foxone2 {curr_key}</code>\n"
-        f"• ⚽ <b>FOX One 3 / Fox Sports 3 HD:</b> <code>/stream foxone3 {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Deportes USA:</b> <code>/stream fox_deportes_usa {curr_key}</code>\n"
-        f"• ⚽ <b>Fox Sports Premium HD:</b> <code>/stream foxpremium {curr_key}</code>\n\n"
-        "🇲🇽 <b>SUITE ViX+ & TUDN (MÉXICO & USA):</b>\n"
-        f"• 🇲🇽 <b>ViX+ TUDN Deportes 1 HD:</b> <code>/stream vix1 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>ViX+ Zona TUDN HD:</b> <code>/stream vix2 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>ViX+ Deportes 3 HD:</b> <code>/stream vix3 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>ViX+ Deportes 4 HD:</b> <code>/stream vix4 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>ViX+ Deportes 5 HD:</b> <code>/stream vix5 {curr_key}</code>\n"
-        f"• 🇲🇽 <b>TUDN MX HD:</b> <code>/stream tudn {curr_key}</code>\n"
-        f"• 🇺🇸 <b>Universo USA HD:</b> <code>/stream universo_usa {curr_key}</code>\n\n"
-        "🎟️ <b>SUITE FANATIZ (EVENTOS EXCLUSIVOS 1 AL 5):</b>\n"
-        f"• ⚽ <b>Fanatiz 1 HD:</b> <code>/stream fanatiz {curr_key}</code>\n"
-        f"• ⚽ <b>Fanatiz 2 HD:</b> <code>/stream fanatiz-2 {curr_key}</code>\n"
-        f"• ⚽ <b>Fanatiz 3 HD:</b> <code>/stream fanatiz-3 {curr_key}</code>\n"
-        f"• ⚽ <b>Fanatiz 4 HD:</b> <code>/stream fanatiz-4 {curr_key}</code>\n"
-        f"• ⚽ <b>Fanatiz 5 HD:</b> <code>/stream fanatiz-5 {curr_key}</code>"
-    )
-
-    msg3 = (
-        "🏆 <b>DIRECTORIO DE CANALES (ElCiro) [Parte 3/3]</b>\n\n"
-        "🇨🇴 <b>DIRECTV SPORTS & WIN SPORTS & BRASIL & ARGENTINA:</b>\n"
-        f"• ⚽ <b>DSports 1 HD:</b> <code>/stream dsports {curr_key}</code>\n"
-        f"• ⚽ <b>DSports 2 HD:</b> <code>/stream dsports2 {curr_key}</code>\n"
-        f"• ⚽ <b>DSports+ HD:</b> <code>/stream dsportsplus {curr_key}</code>\n"
-        f"• ⚽ <b>TyC Sports HD:</b> <code>/stream tycsports {curr_key}</code>\n"
-        f"• ⚽ <b>TNT Sports HD:</b> <code>/stream tntsports {curr_key}</code>\n"
-        f"• ⚽ <b>Win Sports + HD (Colombia):</b> <code>/stream winplus {curr_key}</code>\n"
-        f"• ⚽ <b>Win Sports HD (Colombia):</b> <code>/stream winsports {curr_key}</code>\n"
-        f"• ⚽ <b>Sport TV 1 BR (Brasil):</b> <code>/stream sporttvbr1 {curr_key}</code>\n"
-        f"• ⚽ <b>Liga 1 MAX (Perú):</b> <code>/stream liga1max {curr_key}</code>\n\n"
-        "🍏 <b>APPLE TV (MLS SEASON PASS 1 AL 15):</b>\n"
-        f"• ⚽ <b>Apple TV 1:</b> <code>/stream appletv1 {curr_key}</code>\n"
-        f"• ⚽ <b>Apple TV 2:</b> <code>/stream appletv2 {curr_key}</code>\n"
-        f"• ⚽ <b>Apple TV 3 al 15:</b> <code>/stream appletv3</code> al <code>appletv15</code>\n\n"
-        "🇪🇸 <b>ESPAÑA & LIGA DE CAMPEONES:</b>\n"
-        f"• ⚽ <b>Movistar LaLiga HD:</b> <code>/stream movistarlaliga {curr_key}</code>\n"
-        f"• ⚽ <b>DAZN LaLiga 1 FHD:</b> <code>/stream daznlaliga {curr_key}</code>\n"
-        f"• ⚽ <b>M+ Liga de Campeones 1 FHD:</b> <code>/stream campeones {curr_key}</code>\n"
-        f"• ⚽ <b>M+ Liga de Campeones 2 FHD:</b> <code>/stream campeones2 {curr_key}</code>\n\n"
-        "💡 <i>Usa <code>/partidos</code> para ver qué señal transmite el partido que quieres ver hoy.</i>"
-    )
-    return [msg1, msg2, msg3]
-
-def search_tarjetaroja(query, curr_key):
-    q = query.strip().lower()
-    results = []
-
-    events = fetch_tarjetaroja_schedule()
-    match_found = []
-    for ev in events:
-        text_ev = f"{ev.get('competition', '')} {ev.get('match', '')}".lower()
-        if q in text_ev:
-            match_found.append(ev)
-
-    if match_found:
-        results.append("⚽ <b>PARTIDOS ENCONTRADOS EN ElCiro:</b>\n")
-        for ev in match_found[:6]:
-            time_str = f"[{ev['time']}] " if ev['time'] else ""
-            block = f"🏆 <b>{time_str}{html.escape(ev['competition'])}: {html.escape(ev['match'])}</b>\n"
-            for ch in ev.get("channels", []):
-                block += f"• 📺 <i>{html.escape(ch['name'])}:</i> <code>/stream {ch['slug']} {curr_key}</code>\n"
-            results.append(block)
-
-    channels_found = []
-    seen = set()
-    for alias, info in TR_CHANNELS.items():
-        if info["slug"] in seen:
-            continue
-        if q in alias or q in info["name"].lower() or q in info["slug"]:
-            seen.add(info["slug"])
-            channels_found.append(info)
-
-    if channels_found:
-        results.append("📺 <b>CANALES ENCONTRADOS EN ElCiro:</b>\n")
-        for ch in channels_found[:12]:
-            results.append(f"• 📺 <b>{html.escape(ch['name'])}:</b>\n  <code>/stream {ch['slug']} {curr_key}</code>\n")
-
-    if not results:
-        return f"🔍 No se encontraron partidos ni canales para '<b>{html.escape(query)}</b>'. Usa <code>/partidos</code> o <code>/canales</code>."
-
-    return "\n".join(results)
 
 def send_msg(chat_id, text, parse_mode="HTML"):
-    try:
-        url = f"{API_URL}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": parse_mode,
-            "disable_web_page_preview": True
-        }
-        requests.post(url, json=payload, timeout=8)
-    except Exception as e:
-        print("Error enviando mensaje a Telegram:", e)
+    success = True
+    for part, mode in telegram_parts(str(text)):
+        payload = {"chat_id": chat_id, "text": part, "disable_web_page_preview": True}
+        if mode and parse_mode:
+            payload["parse_mode"] = mode
+        for attempt in range(3):
+            try:
+                response = requests.post(f"{API_URL}/sendMessage", json=payload, timeout=12)
+                data = response.json()
+                if response.status_code == 429 and attempt < 2:
+                    time.sleep(max(1, int(data.get("parameters", {}).get("retry_after", 2))))
+                    continue
+                if not data.get("ok"):
+                    print("[Telegram] Mensaje rechazado. HTTP:", response.status_code)
+                    success = False
+                break
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                print("[Telegram] Error enviando mensaje:", type(exc).__name__)
+                success = False
+                break
+    return success
+
 
 def handle_message(msg):
     global CONFIG
     chat_id = msg.get("chat", {}).get("id")
     user_id = msg.get("from", {}).get("id")
-    text = msg.get("text", "").strip()
+    text = normalize_command(msg.get("text", ""), BOT_USERNAME)
+    command = text.split(maxsplit=1)[0] if text else ""
 
     if not chat_id or not text:
         return
 
     try:
-        if text.startswith(("/id", "/myid", "/mi_id")):
+        if command in ("/id", "/myid", "/mi_id"):
             send_msg(
                 chat_id, 
                 f"👤 <b>Tu ID de Telegram:</b> <code>{user_id}</code>\n"
@@ -1127,69 +960,47 @@ def handle_message(msg):
             )
             return
 
-        admin_commands = ["/stream", "/stop", "/stopall", "/stoppal", "/detener", "/key", "/delay", "/pausar"]
-        if any(text.lower().startswith(cmd) for cmd in admin_commands):
+        admin_commands = ["/stream", "/c1", "/c2", "/c3", "/c4", "/c5", "/stop", "/stopall", "/stoppal", "/detener", "/key", "/delay", "/pausar"]
+        if command in admin_commands + ["/pause", "/stopal", "/stoppall", "/stop_all"]:
             if ADMIN_USER_IDS and str(user_id) not in ADMIN_USER_IDS:
                 send_msg(chat_id, "⛔ <b>Acceso denegado:</b> Solo el administrador autorizado puede iniciar transmisiones o cambiar configuraciones.")
                 return
 
         curr_key = CONFIG.get("stream_key", "3936015063:nG8N_no46UfNuA6jXewiag")
 
-        if text.startswith("/start") or text.startswith("/ayuda"):
-            help_text = (
-                "⚽ <b>BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)</b>\n\n"
-                "⚡ <b>Rendimiento:</b> Modo Ultra-Fluido Zero B-Frames (0% Lag / 0% Tirones en Telegram).\n\n"
-                "📋 <b>COMANDOS PRINCIPALES:</b>\n"
-                "• <code>/partidos</code> o <code>/agenda</code> $\\rightarrow$ Ver partidos de hoy con enlaces listos en 1-click\n"
-                "• <code>/canales</code> o <code>/deportes</code> $\\rightarrow$ Ver los 63 canales de ElCiro\n"
-                "• <code>/buscar &lt;texto&gt;</code> $\\rightarrow$ Buscar partido o canal en ElCiro\n"
-                "• <code>/espn</code> $\\rightarrow$ Ver suite completa de ESPN Sur\n"
-                "• <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code> $\\rightarrow$ Iniciar transmisión\n"
-                "• <code>/status</code> $\\rightarrow$ Ver transmisiones activas y estado en vivo\n"
-                "• <code>/stop [ID]</code> $\\rightarrow$ Detener pantalla activa (ej. <code>/stop 1</code>)\n"
-                "• <code>/stopall</code> $\\rightarrow$ Detener todas las pantallas activas\n"
-                "• <code>/delay &lt;ms o s&gt;</code> $\\rightarrow$ Calibrar audio (ej: <code>/delay +300</code> o <code>/delay 1500</code>)\n"
-                f"• <code>/key &lt;NUEVA_KEY&gt;</code> $\\rightarrow$ Cambiar Stream Key por defecto"
-            )
-            send_msg(chat_id, help_text)
+        if command in ("/start", "/ayuda", "/help", "/comandos", "/inicio"):
+            send_msg(chat_id, HELP_TEXT)
 
-        elif text.startswith("/buscar") or text.startswith("/search"):
+        elif command in ("/buscar", "/search"):
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/buscar &lt;partido o canal&gt;</code>\nEjemplo: <code>/buscar barcelona</code> o <code>/buscar max</code> o <code>/buscar vix</code>")
+                send_msg(chat_id, "Uso: <code>/buscar equipo, liga o canal</code>")
                 return
-            q = parts[1].strip()
-            send_msg(chat_id, f"🔍 <b>Buscando en ElCiro para '{q}'...</b>")
-            res_text = search_tarjetaroja(q, curr_key)
-            send_msg(chat_id, res_text)
+            send_msg(chat_id, search_tarjetaroja(parts[1], curr_key))
 
-        elif text.startswith("/canales") or text.startswith("/deportes") or text.startswith("/menu"):
-            msgs = get_sports_menu_messages(curr_key)
-            for m in msgs:
-                send_msg(chat_id, m)
+        elif command in ("/canales", "/deportes", "/menu", "/espn"):
+            parts = text.split(maxsplit=1)
+            query = "espn" if command == "/espn" else (parts[1] if len(parts) > 1 else "")
+            for message in get_sports_menu_messages(curr_key, query):
+                send_msg(chat_id, message)
 
-        elif text.startswith("/espn"):
-            espn_msg = (
-                "📺 <b>SUITE COMPLETA ESPN SUR (24/7 EN DIRECTO - ElCiro):</b>\n\n"
-                "🇦🇷 <b>SEÑALES ESPN SUR (HD / FHD):</b>\n"
-                f"• ⚽ <b>ESPN 1 HD (Sur):</b> <code>/stream espn {curr_key}</code> o <code>/stream espn 1</code>\n"
-                f"• ⚽ <b>ESPN 2 HD (Sur):</b> <code>/stream espn2 {curr_key}</code> o <code>/stream espn 2</code>\n"
-                f"• 🚴 <b>ESPN 3 HD (Ciclismo / Tenis):</b> <code>/stream espn3 {curr_key}</code> o <code>/stream espn 3</code>\n"
-                f"• ⚽ <b>ESPN 4 HD (Sur):</b> <code>/stream espn4 {curr_key}</code> o <code>/stream espn 4</code>\n"
-                f"• ⚽ <b>ESPN 5 HD (Sur):</b> <code>/stream espn5 {curr_key}</code> o <code>/stream espn 5</code>\n"
-                f"• ⚽ <b>ESPN Premium HD (Argentina):</b> <code>/stream espnpremium {curr_key}</code>\n"
-                f"• 🇺🇸 <b>ESPN Deportes USA:</b> <code>/stream espn-deportes {curr_key}</code>\n\n"
-                "💡 <i>Usa <code>/partidos</code> para ver qué canal transmite cada partido hoy.</i>"
-            )
-            send_msg(chat_id, espn_msg)
+        elif command in ("/partidos", "/agenda", "/hoy"):
+            send_msg(chat_id, "⏳ Consultando la agenda de hoy…")
+            for message in get_live_matches_agenda(curr_key):
+                send_msg(chat_id, message)
 
-        elif text.startswith("/partidos") or text.startswith("/agenda") or text.startswith("/hoy"):
-            send_msg(chat_id, "⏳ <b>Cargando partidos de hoy desde ElCiro...</b>")
-            msgs = get_live_matches_agenda(curr_key)
-            for m in msgs:
-                send_msg(chat_id, m)
+        elif (command.startswith("/c") and len(command) == 3 and command[2].isdigit()):
+            slot = command[2]
+            tokens = text.split()[1:]
+            if not tokens:
+                send_msg(chat_id, f"⚠️ <b>Uso:</b> <code>{command} &lt;CANAL o URL&gt;</code>\nEjemplo: <code>{command} espnmx</code> o <code>{command} https://tarjetadigital.club/en-vivo/espn-1</code>")
+                return
+            ch_input = " ".join(tokens).strip()
+            send_msg(chat_id, f"🔄 <b>Preparando {html.escape(public_source_label(ch_input)[:200])} en Pantalla #{slot}...</b>")
+            ok, response_msg = start_single_stream(ch_input, curr_key, chat_id, requested_slot=slot)
+            send_msg(chat_id, response_msg)
 
-        elif text.startswith("/stream"):
+        elif command == "/stream":
             tokens = text.split()[1:]
             if not tokens:
                 send_msg(chat_id, "⚠️ <b>Uso:</b> <code>/stream &lt;CANAL&gt; [PANTALLA] [STREAM_KEY]</code>\nEjemplo: <code>/stream espn</code> o <code>/stream 1 espn</code> o <code>/stream disney-7 2</code>")
@@ -1204,9 +1015,9 @@ def handle_message(msg):
             is_stream_key = False
             if last_token.startswith(("rtmp://", "rtmps://")):
                 is_stream_key = True
-            elif ":" in last_token and len(last_token) >= 12:
+            elif not last_token.startswith(("http://", "https://")) and ":" in last_token and len(last_token) >= 12:
                 is_stream_key = True
-            elif len(last_token) >= 20 and not any(kw in last_token.lower() for kw in ["espn", "fox", "sport", "deporte", "campeon", "star", "disney", "vix", "fanatiz", "max", "apple"]):
+            elif not last_token.startswith(("http://", "https://")) and len(last_token) >= 20 and not any(kw in last_token.lower() for kw in ["espn", "fox", "sport", "deporte", "campeon", "star", "disney", "vix", "fanatiz", "max", "apple"]):
                 is_stream_key = True
 
             if is_stream_key and len(tokens) > 1:
@@ -1225,11 +1036,11 @@ def handle_message(msg):
             ch_input = " ".join(tokens).strip()
 
             slot_notice = f" en Pantalla #{requested_slot}" if requested_slot else ""
-            send_msg(chat_id, f"🔄 <b>Conectando a ElCiro para {ch_input}{slot_notice}...</b>")
+            send_msg(chat_id, f"🔄 <b>Preparando {html.escape(public_source_label(ch_input)[:200])}{slot_notice}...</b>")
             ok, response_msg = start_single_stream(ch_input, s_key, chat_id, requested_slot=requested_slot)
             send_msg(chat_id, response_msg)
 
-        elif text.startswith("/status") or text.startswith("/logs"):
+        elif command in ("/status", "/logs"):
             with stream_lock:
                 if not active_streams:
                     send_msg(chat_id, "ℹ️ No hay ninguna transmisión activa actualmente.")
@@ -1241,27 +1052,26 @@ def handle_message(msg):
                     mins = elapsed // 60
                     secs = elapsed % 60
                     proc = info.get("process")
-                    if proc and proc.poll() is None:
-                        proc_state = "🟢 EMITIENDO (Ultra-Fluido / 0% Lag)"
-                    elif info.get("status") == "reconnecting":
-                        proc_state = "🔄 RECONECTANDO CON NUEVO TOKEN"
+                    if info.get("status") == "rejected":
+                        proc_state = "⛔ ACCESO RECHAZADO; REINTENTOS PAUSADOS"
+                    elif info.get("recovering") or proc is None or proc.poll() is not None:
+                        proc_state = "🔄 RECONECTANDO" if info.get("auto_restart") else "🔴 DETENIDO"
                     else:
-                        proc_state = "🔴 DETENIDO"
-
-                    last_log = ""
-                    try:
-                        log_file = info.get("log_file")
-                        if log_file and os.path.exists(log_file):
-                            with open(log_file, "r", encoding="utf-8", errors="ignore") as lf:
-                                last_log = lf.read()[-300:]
-                    except Exception:
-                        pass
+                        state, detail = health(proc)
+                        proc_state = {"running": "🟢 VIDEO ENVIÁNDOSE", "starting": "🟡 INICIANDO",
+                                      "stalled": "🟠 SIN AVANCE"}.get(state, state)
+                    progress = proc.stream_progress.snapshot() if proc is not None else None
+                    metrics = (f"{progress['frames']} frames / velocidad {html.escape(progress['speed'])}"
+                               if progress else "Sin fotogramas confirmados")
+                    last_log = safe_tail(info.get("log_file"), (info.get("key"),), limit=300)
 
                     msg_status += (
-                        f"🔹 <b>Pantalla #{sid}:</b> {html.escape(info['channel_name'])} [<code>{html.escape(info['resolved_slug'])}</code>]\n"
+                        f"🔹 <b>Pantalla #{sid}:</b> {html.escape(info['channel_name'])} [<code>{html.escape(public_source_label(info['resolved_slug']))}</code>]\n"
                         f"• 🌐 <b>Estado:</b> {proc_state}\n"
                         f"• ⏱️ <b>Tiempo activo:</b> {mins}m {secs}s\n"
-                        f"• 🔑 <b>Key:</b> <code>{info['key'][:12]}...</code>\n"
+                        f"• 📈 <b>Salida:</b> {metrics}\n"
+                        f"• 🔄 <b>Reintentos:</b> {info.get('total_restarts', 0)}\n"
+                        f"• 🩺 <b>Último incidente:</b> {html.escape(info.get('last_error', 'Sin incidentes detectados'))}\n"
                         f"• 🛑 <b>Detener esta pantalla:</b> <code>/stop {sid}</code>\n"
                     )
                     if last_log:
@@ -1272,11 +1082,11 @@ def handle_message(msg):
                 msg_status += "🛑 <i>Para detener todas las transmisiones a la vez:</i> <code>/stopall</code>"
                 send_msg(chat_id, msg_status)
 
-        elif any(text.strip().lower().startswith(c) for c in ["/stopall", "/stoppal", "/stopal", "/stoppall", "/stop all", "/stop_all", "/detener todo", "/detener todos"]):
+        elif command in ("/stopall", "/stoppal", "/stopal", "/stoppall", "/stop_all"):
             ok, response_msg = stop_all_streams()
             send_msg(chat_id, response_msg)
 
-        elif text.startswith(("/stop", "/detener", "/pausar", "/pause")):
+        elif command in ("/stop", "/detener", "/pausar", "/pause"):
             parts = text.split(maxsplit=1)
             arg = parts[1].strip() if len(parts) > 1 else None
             if arg and arg.lower() in ["all", "todas", "todo", "todos"]:
@@ -1285,7 +1095,7 @@ def handle_message(msg):
                 ok, response_msg = stop_single_stream(arg)
             send_msg(chat_id, response_msg)
 
-        elif text.startswith("/key"):
+        elif command == "/key":
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
                 send_msg(chat_id, f"🔑 <b>Stream Key actual:</b> <code>{curr_key}</code>\n\nPara cambiarla usa: <code>/key NUEVA_KEY</code>")
@@ -1303,13 +1113,57 @@ def handle_message(msg):
         print("Error procesando mensaje:", e)
         send_msg(chat_id, f"⚠️ Ocurrió un error temporal al procesar la solicitud: <code>{html.escape(str(e))}</code>")
 
+def restore_streams_from_environment():
+    """Resume explicitly supplied local restart state without writing keys to disk."""
+    raw = os.environ.pop("EL_CIRO_RESUME", "")
+    if not raw:
+        return 0
+    try:
+        entries = json.loads(raw)
+        if not isinstance(entries, list):
+            return 0
+    except ValueError:
+        return 0
+    restored = 0
+    for entry in entries[:8]:
+        if not isinstance(entry, dict):
+            continue
+        source, destination = entry.get("source"), entry.get("destination")
+        if not isinstance(source, str) or not isinstance(destination, str):
+            continue
+        if not destination.startswith(("rtmp://", "rtmps://")):
+            continue
+        try:
+            ok, _ = start_single_stream(source, destination, None, requested_slot=str(restored + 1))
+            restored += bool(ok)
+        except Exception as exc:
+            print("No se pudo reanudar una emisión:", type(exc).__name__)
+    print("Emisiones locales reanudadas o en recuperación:", restored)
+    return restored
+
+
 def main():
+    global BOT_USERNAME
     print("=" * 65)
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)
     if not TELEGRAM_BOT_TOKEN:
         print("⚠️ AVISO: Variable TELEGRAM_BOT_TOKEN no configurada.")
         return
+
+    threading.Thread(target=supervisor_thread, daemon=True).start()
+    restore_streams_from_environment()
+
+    try:
+        identity = requests.get(f"{API_URL}/getMe", timeout=10).json()
+        if identity.get("ok"):
+            BOT_USERNAME = identity["result"]["username"]
+        result = requests.post(f"{API_URL}/setMyCommands", json={"commands": [
+            {"command": cmd, "description": description} for cmd, description in BOT_COMMANDS
+        ]}, timeout=10).json()
+        print("Menú de comandos actualizado:", bool(result.get("ok")))
+    except (requests.RequestException, ValueError) as exc:
+        print("No se pudo actualizar el menú:", type(exc).__name__)
 
     # Eliminar cualquier webhook previo para garantizar que getUpdates funcione sin bloqueos
     try:

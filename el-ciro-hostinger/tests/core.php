@@ -1,0 +1,19 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/../public_html/lib/network.php';
+$checks=0;
+function check(bool $value,string $message):void {global $checks;if(!$value)throw new RuntimeException($message);$checks++;}
+function rejects(callable $fn,string $message):void{try{$fn();}catch(Throwable){check(true,$message);return;}check(false,$message);}
+$rows=[];for($i=1;$i<=35;$i++)$rows[]=['id'=>$i,'attributes'=>['diary_description'=>'Liga: Equipo '.$i.' vs Rival','date_diary'=>'2026-10-18','diary_hour'=>'23:30:00','embeds'=>['data'=>[['id'=>$i+100,'attributes'=>['embed_name'=>'Señal','embed_iframe'=>'https://tvf90.com/player?stream=one_two']]]]]];
+$now=new DateTimeImmutable('2026-10-19T15:00:00Z');$result=ciro_normalize(['data'=>[...$rows,$rows[0]]],$now);
+check(count($result['events'])===35,'No truncar agenda y eliminar duplicados');check($result['events'][0]['time']==='00:30','Conversión Lima a Venezuela al cambiar de fecha');check(count($result['events'][0]['teams'])===2,'Separar equipos');check(!str_contains(json_encode($result['events']),'https'),'No exponer URL de origen en agenda');check(count(ciro_normalize(['data'=>$rows],new DateTimeImmutable('2026-10-20T15:00:00Z'))['events'])===0,'No mostrar ayer');
+$row=['id'=>1,'diary_description'=>'A vs B','date_diary'=>'2026-10-19','diary_hour'=>'12:00:00','embeds'=>[['id'=>9,'embed_iframe'=>'https://rojadirectatvmas.net/embed/eventos.html?r='.rawurlencode(base64_encode('https://tvf90.com/player?stream=one_two'))]]];
+$data=ciro_normalize(['data'=>[$row,['id'=>2,'diary_description'=>'C vs D','date_diary'=>'2026-10-19','diary_hour'=>'13:00:00']]],$now);
+check($data['sources']['event-1-9']['url']==='https://tvf90.com/player?stream=one_two','Decodificar wrapper');check(count($data['events'])===2&&count($data['events'][1]['signals'])===0,'Conservar eventos sin señales');
+check(ciro_absolute('../seg.ts?x=1','https://cdn.example.com/live/video/list.m3u8')==='https://cdn.example.com/live/seg.ts?x=1','Resolver enlace relativo');check(ciro_absolute('?new=1','https://cdn.example.com/a.m3u8?old=1')==='https://cdn.example.com/a.m3u8?new=1','Resolver query');check(ciro_absolute('//cdn2.example.com/a','https://example.com/')==='https://cdn2.example.com/a','Resolver enlace sin esquema');
+$secret=str_repeat('k',40);$expiry=time()+600;$token=ciro_grant('https://cdn.example.com/live/main.m3u8','https://tvf90.com/',$secret,$expiry);check(ciro_verify($token,$secret)['e']===$expiry,'Firma válida');rejects(fn()=>ciro_verify('x'.$token,$secret),'Rechazar manipulación');rejects(fn()=>ciro_verify(ciro_grant('https://cdn.example.com/a','',$secret,time()-1),$secret),'Rechazar caducado');
+foreach(['http://127.0.0.1/a','http://[::1]/','http://localhost/a','file:///etc/passwd','http://user:pass@example.com/a','http://server.local/a','http://metadata.google.internal/'] as $url)rejects(fn()=>ciro_public_url($url),'Rechazar destino privado');
+$manifest="#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-MEDIA:TYPE=AUDIO,URI=\"audio/list.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=100000\nvideo/index.m3u8\nsegment.ts\n";
+$rewritten=ciro_manifest($manifest,'https://cdn.example.com/live/main.m3u8','https://tvf90.com/',$secret,$expiry);preg_match_all('/api\.php\?action=media&t=([^"\n]+)/',$rewritten,$matches);check(count($matches[1])===5,'Reescribir claves/mapas/audio/variantes/segmentos');$paths=['key.bin','init.mp4','audio/list.m3u8','video/index.m3u8','segment.ts'];foreach($matches[1] as $i=>$t){$p=ciro_verify(rawurldecode($t),$secret);check($p['u']==='https://cdn.example.com/live/'.$paths[$i]&&$p['e']===$expiry,'Conservar URL y caducidad de manifiesto');}
+rejects(fn()=>ciro_manifest('<html>error</html>','https://example.com/','',$secret,$expiry),'Rechazar HTML como playlist');
+echo "OK: $checks comprobaciones PHP.\n";
