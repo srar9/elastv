@@ -212,7 +212,7 @@ def handle_message(msg):
             }
             send_msg(chat_id, msg_body, reply_markup=keyboard)
 
-        elif command in ("/partidos", "/agenda", "/hoy"):
+        elif command in ("/partidos", "/partido", "/agenda", "/hoy", "/juegos", "/cartelera"):
             send_msg(chat_id, "⏳ <b>Cargando la agenda de partidos de hoy desde ElCiro...</b>")
             events = fetch_tarjetaroja_schedule()
             if not events:
@@ -229,6 +229,8 @@ def handle_message(msg):
                                                "web_app": {"url": WEB_APP_BASE_URL}}]]}
             for index, page in enumerate(pages, 1):
                 send_msg(chat_id, f"📄 Agenda {index}/{len(pages)}\n\n{page}", reply_markup=keyboard if index == 1 else None)
+                if index < len(pages):
+                    time.sleep(1.2)
 
         elif command in ("/canales", "/deportes", "/menu"):
             entries = {info["slug"]: info for info in TR_CHANNELS.values()}

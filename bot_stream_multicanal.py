@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 from stream_runtime import launch, health, stop_process, safe_tail, retry_delay, explicit_rejection
 from channel_source import resolve_roja_source, resolve_player, CHANNEL_NAMES, CHANNEL_PAGES
 from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ
-from bot_catalog import normalize_command, agenda_messages, pack_blocks, event_blocks, fold, telegram_parts
+from bot_catalog import normalize_command, agenda_messages, live_now_messages, pack_blocks, event_blocks, fold, telegram_parts
 
 # ==============================================================================
 TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "9281285181:AAEo_hAjJo-zd537Kvz-f4QcU3iG-aUNGzo").strip()
@@ -824,6 +824,14 @@ def get_live_matches_agenda(curr_key=None):
                 "\nNo se mostrarán partidos de otro día. Puedes consultar <code>/canales</code> o volver a intentar."]
 
 
+def get_live_now_agenda(curr_key=None):
+    try:
+        events = fetch_tarjetaroja_schedule()
+        return live_now_messages(events)
+    except ScheduleUnavailable as exc:
+        return ["⚠️ <b>La agenda no está disponible:</b> " + html.escape(str(exc))]
+
+
 def channel_catalog():
     catalog = {slug: dict(name=name, slug=slug, group="Directorio del proveedor")
                for slug, name in CHANNEL_NAMES.items()}
@@ -881,7 +889,7 @@ def search_tarjetaroja(query, curr_key=None):
 HELP_TEXT = (
     "⚽ <b>TV ELAS · TRANSMISIÓN TELEGRAM</b>\n"
     "<i>Soporte completo de partidos y canales desde tarjetadigital.club</i>\n\n"
-    "<code>/partidos</code> · Agenda de partidos de hoy con botón de emisión rápida.\n"
+    "<code>/envivo</code> · Partidos en juego AHORA MISMO (hora de Venezuela).\n    <code>/partidos [N]</code> · Cartelera completa de hoy (o por página: /partidos 2).\n"
     "<code>/canales</code> · Directorio de canales (Tarjeta Digital, ESPN, Fox, etc.).\n"
     "<code>/canales espn</code> · Filtrar canales por nombre.\n"
     "<code>/buscar equipo o liga</code> · Buscar partidos o señales en vivo.\n"
@@ -975,10 +983,31 @@ def handle_message(msg):
             for message in get_sports_menu_messages(curr_key, query):
                 send_msg(chat_id, message)
 
-        elif command in ("/partidos", "/agenda", "/hoy"):
-            send_msg(chat_id, "⏳ Consultando la agenda de hoy…")
-            for message in get_live_matches_agenda(curr_key):
+        elif command in ("/partidos", "/partido", "/agenda", "/hoy", "/juegos", "/cartelera"):
+            parts = text.split()
+            page_req = None
+            if len(parts) > 1 and parts[1].isdigit():
+                page_req = int(parts[1])
+
+            agenda_msgs = get_live_matches_agenda(curr_key)
+            if not agenda_msgs:
+                send_msg(chat_id, "ℹ️ No hay partidos publicados para hoy en la cartelera.")
+                return
+
+            if page_req and 1 <= page_req <= len(agenda_msgs):
+                send_msg(chat_id, agenda_msgs[page_req - 1])
+            else:
+                send_msg(chat_id, f"⏳ <b>Cargando la cartelera de hoy ({len(schedule.events)} partidos en {len(agenda_msgs)} partes)...</b>")
+                for idx, message in enumerate(agenda_msgs):
+                    send_msg(chat_id, message)
+                    if idx < len(agenda_msgs) - 1:
+                        time.sleep(1.2)
+
+        elif command in ("/envivo", "/live", "/ahora"):
+            send_msg(chat_id, "⏳ <b>Buscando partidos en juego en este momento...</b>")
+            for idx, message in enumerate(get_live_now_agenda(curr_key)):
                 send_msg(chat_id, message)
+                time.sleep(0.8)
 
         elif (command.startswith("/c") and len(command) == 3 and command[2].isdigit()):
             slot = command[2]

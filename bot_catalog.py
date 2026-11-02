@@ -55,15 +55,58 @@ def event_blocks(events, stream_commands=True):
 
 def agenda_messages(events, stale=False):
     day = datetime.now(LOCAL_TZ).strftime("%d/%m/%Y")
-    header = f"📅 <b>PARTIDOS DEL {day} · {len(events)} eventos</b>\nHorarios de Venezuela (UTC−4)."
-    header += "\nAgenda publicada por el proveedor; disponibilidad de señales sujeta al origen."
+    total_events = len(events)
+    header = f"📅 <b>PARTIDOS DEL {day} · {total_events} eventos</b>\nHorarios de Venezuela (UTC−4)."
+    header += "\nDisponibilidad sujeta al origen. Usa /envivo para ver solo los que juegan ahora."
     if stale:
         header += "\n⚠️ No se pudo actualizar: se muestra la última agenda de hoy guardada en memoria."
     blocks = [header] + event_blocks(events)
     if not events:
         blocks.append("No hay eventos publicados para hoy en esta fuente. Usa /canales para consultar el directorio.")
     pages = pack_blocks(blocks)
-    return [f"📄 Agenda {i}/{len(pages)}\n\n{page}" for i, page in enumerate(pages, 1)]
+    result = []
+    for i, page in enumerate(pages, 1):
+        nav = f"\n\n📄 <i>Página {i} de {len(pages)} (usa /partidos {2 if i==1 else 1} para ver otra página)</i>" if len(pages) > 1 else ""
+        result.append(f"📄 <b>Agenda {i}/{len(pages)}</b>\n\n{page}{nav}")
+    return result
+
+
+def live_now_messages(events):
+    now = datetime.now(LOCAL_TZ)
+    live_events = []
+    for ev in events:
+        try:
+            ev_dt = datetime.fromisoformat(ev["starts_at"])
+            diff_mins = (ev_dt - now).total_seconds() / 60
+            if -140 <= diff_mins <= 45:
+                live_events.append((diff_mins, ev))
+        except Exception:
+            continue
+
+    if not live_events:
+        return [
+            f"ℹ️ <b>No hay partidos jugándose en este momento</b> (Hora actual en Venezuela: <b>{now.strftime('%H:%M')}</b>).\n\n"
+            "• Consulta toda la cartelera del día con <code>/partidos</code>\n"
+            "• O sintoniza canales 24/7 con <code>/canales</code>"
+        ]
+
+    live_events.sort(key=lambda x: x[0])
+    blocks = [
+        f"🔴 <b>PARTIDOS EN VIVO Y PRÓXIMOS A INICIAR</b>\n"
+        f"Hora de Venezuela: <b>{now.strftime('%H:%M')}</b> · {len(live_events)} eventos activos o por comenzar:"
+    ]
+    for diff_mins, ev in live_events:
+        status_label = "🟢 EN JUEGO AHORA" if diff_mins <= 0 else f"🟡 COMIENZA EN {int(diff_mins)} MIN"
+        title = html.escape(ev["match"][:250])
+        comp = html.escape(ev["competition"][:160])
+        blocks.append(f"⏰ <b>{ev['time']}</b> | {comp} — <b>{status_label}</b>\n⚽ <b>{title}</b>")
+        if not ev["channels"]:
+            blocks.append("📡 Señal pendiente de publicación")
+        for ch in ev["channels"][:6]:
+            blocks.append(f"📺 {html.escape(ch['name'][:100])} · <code>/stream {html.escape(ch['slug'])}</code>")
+
+    pages = pack_blocks(blocks)
+    return [f"🔴 <b>En Vivo {i}/{len(pages)}</b>\n\n{page}" if len(pages) > 1 else page for i, page in enumerate(pages, 1)]
 
 
 class PlainText(HTMLParser):

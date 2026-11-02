@@ -28,6 +28,11 @@ def slugify(text):
     return re.sub(r"[^a-z0-9]+", "-", plain).strip("-")
 
 
+def simplified_slug(slug):
+    tokens = [w for w in slug.split("-") if w not in ("fc", "cf", "cd", "real", "club", "deportivo", "atletico", "inter")]
+    return "-".join(tokens) or slug
+
+
 def attributes(item):
     if not isinstance(item, dict):
         return {}
@@ -78,14 +83,16 @@ def normalize_schedule(payload, now=None):
             if "T" in hour:
                 starts = datetime.fromisoformat(hour.replace("Z", "+00:00"))
                 if starts.tzinfo is None:
-                    starts = starts.replace(tzinfo=SOURCE_TZ if strapi else timezone.utc)
+                    starts = starts.replace(tzinfo=SOURCE_TZ)
             else:
-                starts = datetime.fromisoformat(f"{date}T{hour[:8] or '12:00:00'}").replace(
-                    tzinfo=SOURCE_TZ if strapi else timezone.utc)
+                h_clean = hour[:8].strip() if hour else "12:00:00"
+                if len(h_clean.split(":")) == 2:
+                    h_clean += ":00"
+                starts = datetime.fromisoformat(f"{date}T{h_clean}").replace(tzinfo=SOURCE_TZ)
             starts = starts.astimezone(LOCAL_TZ)
         except (ValueError, TypeError):
             continue  # An undated row cannot safely be advertised as today's event.
-        if starts.date() != today:
+        if date != today.isoformat() and starts.date() != today:
             continue
         competition, sep, match = title.partition(":")
         if not sep:
@@ -162,11 +169,25 @@ class ScheduleService:
                 response = requests.get(AGENDA_URL, timeout=(5, 10), headers={"Accept": "application/json"})
                 if response.status_code == 200:
                     roja_events = normalize_schedule(response.json(), now)
-                    # Merge avoiding duplicate match names
-                    existing_titles = {e["match_slug"] for e in all_events}
+                    # Merge evitando duplicados pero combinando todas las señales de transmisión disponibles
+                    events_by_slug = {e["match_slug"]: e for e in all_events}
+                    events_by_simple = {simplified_slug(e["match_slug"]): e for e in all_events}
                     for rev in roja_events:
-                        if rev["match_slug"] not in existing_titles:
+                        slug = rev["match_slug"]
+                        simple = simplified_slug(slug)
+                        existing = events_by_slug.get(slug) or events_by_simple.get(simple)
+                        if not existing:
                             all_events.append(rev)
+                            events_by_slug[slug] = rev
+                            events_by_simple[simple] = rev
+                        else:
+                            # Combinar canales evitando duplicados de señal
+                            existing_keys = {(c["slug"], slugify(c["name"])) for c in existing["channels"]}
+                            for ch in rev["channels"]:
+                                key = (ch["slug"], slugify(ch["name"]))
+                                if key not in existing_keys:
+                                    existing["channels"].append(ch)
+                                    existing_keys.add(key)
             except Exception as exc:
                 failures.append(type(exc).__name__)
 
