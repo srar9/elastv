@@ -1,12 +1,10 @@
 """FFmpeg profile and output health shared by the cloud and desktop launchers."""
 import os
 import re
-import queue
 import subprocess
 import threading
 import time
-from urllib.parse import urlsplit, urljoin
-import requests
+from urllib.parse import urlsplit
 
 
 def setting(name, default, minimum, maximum):
@@ -30,105 +28,15 @@ def is_hls_source(source):
     return path.endswith(".m3u8") or ".m3u8" in parsed.query.lower() or "m3u8" in path
 
 
-class HLSStreamFeeder:
-    """Pre-almacena segmentos HLS en búfer en segundo plano y alimenta FFmpeg por stdin (pipe:0).
-
-    Esto elimina por completo las pausas de 4 segundos que FFmpeg sufre de forma nativa al esperar
-    sincrónicamente cada chunk por HTTPS, garantizando fluidez idéntica a la del navegador web.
-    """
-    def __init__(self, hls_url, headers_str=None):
-        self.hls_url = hls_url
-        self.headers = {}
-        if headers_str:
-            for line in headers_str.splitlines():
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    self.headers[k.strip()] = v.strip()
-        self.queue = queue.Queue(maxsize=15)
-        self.seen_segments = set()
-        self.seen_history = []
-        self.stop_event = threading.Event()
-        self.download_thread = None
-        self.writer_thread = None
-        self.session = None
-
-    def start(self):
-        self.stop_event.clear()
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
-        self.download_thread = threading.Thread(target=self._download_loop, daemon=True)
-        self.download_thread.start()
-
-    def wait_buffered(self, min_segments=2, timeout=12.0):
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < timeout:
-            if self.stop_event.is_set():
-                break
-            if self.queue.qsize() >= min_segments:
-                return True
-            time.sleep(0.2)
-        return self.queue.qsize() > 0
-
-    def _download_loop(self):
-        while not self.stop_event.is_set():
-            try:
-                r = self.session.get(self.hls_url, timeout=(4, 6))
-                if r.status_code == 200:
-                    lines = [l.strip() for l in r.text.splitlines() if l.strip() and not l.startswith("#")]
-                    for line in lines:
-                        if self.stop_event.is_set():
-                            break
-                        if line not in self.seen_segments:
-                            self.seen_segments.add(line)
-                            self.seen_history.append(line)
-                            if len(self.seen_history) > 300:
-                                old = self.seen_history.pop(0)
-                                self.seen_segments.discard(old)
-                            seg_url = urljoin(self.hls_url, line)
-                            try:
-                                r_seg = self.session.get(seg_url, timeout=(5, 8))
-                                if r_seg.status_code == 200 and len(r_seg.content) > 1000:
-                                    self.queue.put(r_seg.content, timeout=5)
-                            except Exception:
-                                pass
-                time.sleep(1.8)
-            except Exception:
-                time.sleep(2.0)
-
-    def feed_proc_stdin(self, proc):
-        def _writer():
-            while not self.stop_event.is_set():
-                if proc.poll() is not None:
-                    break
-                try:
-                    chunk = self.queue.get(timeout=1.0)
-                    proc.stdin.buffer.write(chunk)
-                    proc.stdin.buffer.flush()
-                except queue.Empty:
-                    continue
-                except (BrokenPipeError, ValueError, OSError):
-                    break
-        self.writer_thread = threading.Thread(target=_writer, daemon=True)
-        self.writer_thread.start()
-
-    def stop(self):
-        self.stop_event.set()
-        if self.session:
-            try:
-                self.session.close()
-            except Exception:
-                pass
-
-
 def style_filters():
-    """Filtros anti-bloqueo optimizados: deformación sutil, rotación milimétrica, marco protector y corrección cromática."""
-    # 1. Marco / Reencuadre (7% inset = ~93% escala del video, alterando geometría)
-    inset = setting("STREAM_FRAME_PERCENT", 7, 0, 20)
+    """Presentation effects are opt-in so live encoding stays inexpensive."""
+    # Marco y reencuadre opcionales.
+    inset = setting("STREAM_FRAME_PERCENT", 0, 0, 20)
     width = int(1280 * (100 - inset * 2) / 100) // 2 * 2
     height = int(720 * (100 - inset * 2) / 100) // 2 * 2
-    color = os.environ.get("STREAM_FRAME_COLOR", "0a0e14").strip().lstrip("#")
+    color = os.environ.get("STREAM_FRAME_COLOR", "102A43").strip().lstrip("#")
     if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
-        color = "0a0e14"
+        raise ValueError("STREAM_FRAME_COLOR debe ser un color RRGGBB")
     pad_color = f"0x{color}" if inset else "black"
 
     video_filters = []
@@ -138,9 +46,9 @@ def style_filters():
             f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
         )
         try:
-            rotate_deg = float(os.environ.get("STREAM_ROTATE_DEGREES", "0.4"))
+            rotate_deg = float(os.environ.get("STREAM_ROTATE_DEGREES", "0"))
         except ValueError:
-            rotate_deg = 0.4
+            rotate_deg = 0
         if rotate_deg != 0:
             video_filters.append(f"rotate={rotate_deg}*PI/180:ow={width}:oh={height}:fillcolor={pad_color}:bilinear=0")
         video_filters.append(f"pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1")
@@ -148,7 +56,7 @@ def style_filters():
         video_filters.append("scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
 
     # 2. Corrección de color y contraste sutil
-    if setting("STREAM_COLOR_CORRECTION", 1, 0, 1):
+    if setting("STREAM_COLOR_CORRECTION", 0, 0, 1):
         try:
             contrast = float(os.environ.get("STREAM_CONTRAST", "1.08"))
             saturation = float(os.environ.get("STREAM_SATURATION", "1.08"))
@@ -159,7 +67,7 @@ def style_filters():
         video_filters.append(f"eq=contrast={contrast}:brightness={brightness}:saturation={saturation},hue=h={hue_deg}")
 
     # 3. Ocultar logo del canal original y marcador con máscaras sutiles
-    if setting("STREAM_HIDE_LOGOS", 1, 0, 1) and inset > 0:
+    if setting("STREAM_HIDE_LOGOS", 0, 0, 1) and inset > 0:
         x_logo = 1280 - int(1280 * inset / 100) - 160
         y_top = int(720 * inset / 100) + 12
         x_score = int(1280 * inset / 100) + 14
@@ -201,50 +109,45 @@ def style_filters():
     return video, audio, speed
 
 
-def build_command(source, headers, destination, progress=False, is_piped_hls=False):
+def build_command(source, headers, destination, progress=False):
     bitrate = setting("STREAM_VIDEO_KBPS", 1800, 300, 5000)
     video_filter, audio_filter, speed = style_filters()
     network_source = bool(urlsplit(source).scheme and not os.path.isfile(source))
     if speed != 1 and network_source:
         raise ValueError("STREAM_PLAYBACK_PERCENT debe ser 100 para fuentes de red en directo")
 
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"]
-    if not is_piped_hls:
-        cmd.append("-nostdin")
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-nostdin",
+           "-filter_threads", "2"]
     if progress:
         cmd += ["-progress", "pipe:1", "-stats_period", "2"]
 
-    if is_piped_hls:
+    if urlsplit(source).scheme.lower() in ("http", "https"):
         cmd += [
-            "-thread_queue_size", "2048",
-            "-fflags", "+genpts+discardcorrupt",
-            "-analyzeduration", "1000000",
-            "-probesize", "1000000",
-            "-re",
-            "-i", "pipe:0"
+            "-reconnect", "1", "-reconnect_streamed", "1",
+            "-reconnect_on_network_error", "1", "-reconnect_on_http_error", "408,429,5xx",
+            "-reconnect_delay_max", "2", "-rw_timeout", "15000000"
         ]
-    else:
-        # Opciones de reconexión HTTP/HTTPS estándar para fuentes directas no-HLS
-        if urlsplit(source).scheme.lower() in ("http", "https"):
-            cmd += [
-                "-reconnect", "1", "-reconnect_streamed", "1",
-                "-reconnect_on_network_error", "1", "-reconnect_on_http_error", "4xx,5xx",
-                "-reconnect_delay_max", "2", "-rw_timeout", "15000000"
-            ]
-            if headers:
-                cmd += ["-headers", headers]
+        if headers:
+            cmd += ["-headers", headers]
+        if is_hls_source(source):
+            # Preserve playlist semantics (master playlists, encryption, init
+            # segments and discontinuities). Keep a small live cushion and let
+            # the demuxer prefetch over persistent HTTP connections.
+            cmd += ["-live_start_index", "-3", "-http_persistent", "1", "-http_multiple", "1",
+                    "-seg_max_retry", "3"]
 
-        cmd += [
-            "-thread_queue_size", "2048",
-            "-fflags", "+genpts+discardcorrupt",
-            "-analyzeduration", "1000000",
-            "-probesize", "1000000"
-        ]
+    cmd += [
+        "-thread_queue_size", "512",
+        "-fflags", "+genpts+discardcorrupt",
+        "-analyzeduration", "2000000",
+        "-probesize", "2000000"
+    ]
 
-        if not network_source:
-            cmd += ["-re"] if speed == 1 else ["-readrate", str(speed)]
-
-        cmd += ["-i", source]
+    # HLS downloads arrive in bursts. Pace them at the media clock instead of
+    # sending bursts to RTMP and then waiting idle for the next segment.
+    if not network_source or is_hls_source(source):
+        cmd += ["-re"] if speed == 1 else ["-readrate", str(speed)]
+    cmd += ["-i", source]
 
     # Logo overlay: solo si se especifica explícitamente en STREAM_LOGO_PATH
     logo = os.environ.get("STREAM_LOGO_PATH", "").strip()
@@ -282,7 +185,7 @@ def build_command(source, headers, destination, progress=False, is_piped_hls=Fal
     else:
         cmd += ["-map", "0:v:0", "-vf", video_filter]
 
-    encoder_threads = str(setting("STREAM_ENCODER_THREADS", 0, 0, 16))
+    encoder_threads = str(setting("STREAM_ENCODER_THREADS", 2, 0, 16))
     preset = os.environ.get("STREAM_ENCODER_PRESET", "ultrafast").strip().lower()
 
     cmd += [
@@ -295,7 +198,9 @@ def build_command(source, headers, destination, progress=False, is_piped_hls=Fal
         "-af", audio_filter,
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
         "-avoid_negative_ts", "make_zero", "-max_muxing_queue_size", "2048",
-        "-max_interleave_delta", "1000000", "-flush_packets", "1",
+        # Wait for both tracks before flushing: fMP4 audio can start earlier
+        # than the first video packet, especially after a segment retry.
+        "-max_interleave_delta", "0", "-flush_packets", "1",
         "-rw_timeout", "10000000", "-flvflags", "no_duration_filesize", "-f", "flv", destination
     ]
     return cmd
@@ -350,35 +255,15 @@ def consume_progress(pipe, progress):
 
 
 def launch(source, headers, destination, log_path):
+    cmd = build_command(source, headers, destination, progress=True)
     log = open(log_path, "w", encoding="utf-8", errors="replace")
-    feeder = None
-    hls_piped = is_hls_source(source)
-
-    if hls_piped:
-        feeder = HLSStreamFeeder(source, headers)
-        feeder.start()
-        feeder.wait_buffered(min_segments=2, timeout=12.0)
-        cmd = build_command(source, headers, destination, progress=True, is_piped_hls=True)
-        stdin_val = subprocess.PIPE
-    else:
-        cmd = build_command(source, headers, destination, progress=True, is_piped_hls=False)
-        stdin_val = subprocess.DEVNULL
-
     try:
         proc = subprocess.Popen(cmd,
-                                stdin=stdin_val, stdout=subprocess.PIPE, stderr=log,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
     except Exception:
-        if feeder:
-            feeder.stop()
         log.close()
         raise
-
-    if feeder:
-        proc.feeder = feeder
-        feeder.feed_proc_stdin(proc)
-    else:
-        proc.feeder = None
 
     proc.stream_progress = OutputProgress()
     threading.Thread(target=consume_progress, args=(proc.stdout, proc.stream_progress), daemon=True).start()
@@ -390,9 +275,6 @@ def health(proc, now=None):
         return "waiting", "Esperando un nuevo intento"
     code = proc.poll()
     if code is not None:
-        feeder = getattr(proc, "feeder", None)
-        if feeder:
-            feeder.stop()
         return "failed", f"FFmpeg terminó (código {code})"
     now = time.monotonic() if now is None else now
     data = proc.stream_progress.snapshot()
@@ -407,9 +289,6 @@ def health(proc, now=None):
 
 def stop_process(proc):
     if proc is not None:
-        feeder = getattr(proc, "feeder", None)
-        if feeder:
-            feeder.stop()
         if proc.poll() is None:
             proc.terminate()
         try:

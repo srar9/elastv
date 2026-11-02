@@ -8,6 +8,9 @@ import subprocess
 import tempfile
 import time
 import unittest
+import threading
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -18,6 +21,29 @@ import channel_source
 
 
 class RuntimeChecks(unittest.TestCase):
+    def test_default_live_filters_do_not_add_expensive_effects(self):
+        with patch.dict(os.environ, {}, clear=True):
+            video, audio, _ = runtime.style_filters()
+        for effect in ("rotate=", "eq=", "hue=", "drawbox=", "noise="):
+            self.assertNotIn(effect, video)
+        self.assertEqual(audio, "aresample=48000:async=1:first_pts=0")
+
+    def test_hls_uses_native_demuxer_with_paced_prefetch(self):
+        cmd = runtime.build_command("https://source.invalid/master.m3u8", "Referer: test\r\n", "out.flv")
+        options = cmd[:cmd.index("-i")]
+        for option in ("-re", "-http_persistent", "-http_multiple", "-live_start_index"):
+            self.assertIn(option, options)
+        self.assertEqual(cmd[cmd.index("-i") + 1], "https://source.invalid/master.m3u8")
+        self.assertNotIn("pipe:0", cmd)
+        self.assertEqual(cmd[cmd.index("-reconnect_on_http_error") + 1], "408,429,5xx")
+        self.assertEqual(cmd[cmd.index("-seg_max_retry") + 1], "3")
+        self.assertEqual(cmd[cmd.index("-max_interleave_delta") + 1], "0")
+
+    def test_direct_live_ts_is_not_throttled_again(self):
+        cmd = runtime.build_command("https://source.invalid/live.ts", "", "out.flv")
+        self.assertNotIn("-re", cmd)
+        self.assertNotIn("-live_start_index", cmd)
+
     def test_network_live_source_keeps_realtime_speed(self):
         with patch.dict(os.environ, {"STREAM_PLAYBACK_PERCENT": "103"}):
             with self.assertRaisesRegex(ValueError, "100"):
@@ -255,6 +281,71 @@ class ChannelSourceChecks(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg/ffprobe required")
 class EncoderChecks(unittest.TestCase):
+    def test_http_hls_master_retry_and_fragmented_mp4(self):
+        # Exercise actual HTTP segment fetching, not just command construction.
+        # The old stdin feeder lost failed segments and could not read masters
+        # or EXT-X-MAP initialization segments.
+        for segment_type in ("mpegts", "fmp4"):
+            with self.subTest(segment_type=segment_type), tempfile.TemporaryDirectory() as folder:
+                playlist = Path(folder) / "media.m3u8"
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30",
+                                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                                "-t", "8", "-c:v", "libx264", "-preset", "ultrafast", "-g", "60",
+                                "-sc_threshold", "0", "-c:a", "aac", "-f", "hls",
+                                "-hls_time", "2", "-hls_list_size", "0",
+                                "-hls_segment_type", segment_type, playlist.name],
+                               check=True, capture_output=True, timeout=45, cwd=folder)
+                (Path(folder) / "master.m3u8").write_text(
+                    '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=600000,RESOLUTION=320x180\nmedia.m3u8\n')
+                hits = {}
+                class Handler(SimpleHTTPRequestHandler):
+                    protocol_version = "HTTP/1.1"
+
+                    def do_GET(self):
+                        hits[self.path] = hits.get(self.path, 0) + 1
+                        if self.headers.get("Referer") != "https://test.invalid/":
+                            self.send_error(403)
+                            return
+                        if self.path in ("/media1.ts", "/media1.m4s") and hits[self.path] == 1:
+                            self.send_error(503)
+                            return
+                        super().do_GET()
+
+                    def log_message(self, *_):
+                        pass
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=folder))
+                worker = threading.Thread(target=server.serve_forever, daemon=True)
+                worker.start()
+                dest = str(Path(folder) / "out.flv")
+                proc = log = None
+                try:
+                    proc, log, path = runtime.launch(
+                        f"http://127.0.0.1:{server.server_port}/master.m3u8",
+                        "Referer: https://test.invalid/\r\n", dest, str(Path(folder) / "encode.log"))
+                    proc.wait(timeout=45)
+                    self.assertEqual(proc.returncode, 0, runtime.safe_tail(path, limit=4000))
+                    probe = subprocess.run(["ffprobe", "-v", "error", "-show_packets",
+                                            "-show_entries", "packet=stream_index,pts_time,duration_time",
+                                            "-of", "json", dest],
+                                           check=True, capture_output=True, text=True, timeout=60)
+                    packets = json.loads(probe.stdout)["packets"]
+                    for index in (0, 1):
+                        times = [float(p["pts_time"]) for p in packets if p["stream_index"] == index]
+                        self.assertGreater(times[-1] - times[0], 7.8)
+                        self.assertLess(max(b - a for a, b in zip(times, times[1:])), .1)
+                    segment = "/media1.ts" if segment_type == "mpegts" else "/media1.m4s"
+                    self.assertGreaterEqual(hits.get(segment, 0), 2)
+                finally:
+                    if proc:
+                        runtime.stop_process(proc)
+                    if log:
+                        log.close()
+                    server.shutdown()
+                    server.server_close()
+                    worker.join(timeout=3)
+
     def test_presentation_effects_render_and_keep_audio_video_aligned(self):
         with tempfile.TemporaryDirectory() as folder:
             source = str(Path(folder) / "source.mkv")

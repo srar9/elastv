@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-trixie
 
 # Instalar FFmpeg para el motor de streaming
 RUN apt-get update && apt-get install -y \

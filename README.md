@@ -1,6 +1,10 @@
 # Transmisión a Telegram: estabilidad y diagnóstico
 
-Bot multicanal, lanzador manual para PC y aplicación web. El motor comparte un perfil H.264/AAC de 720p a 30 FPS, con fotogramas clave cada dos segundos, límites de bitrate y corrección de audio. Requiere Python 3.11+ y FFmpeg con libx264.
+Bot multicanal, lanzador manual para PC y aplicación web. El motor comparte un perfil H.264/AAC de 720p a 30 FPS, con fotogramas clave cada dos segundos, límites de bitrate y corrección de audio. Requiere Python 3.11+ y FFmpeg 6.1+ con libx264 y la opción HLS `seg_max_retry`. Los Dockerfile usan Debian Trixie para disponer de esta opción.
+
+Las fuentes HLS se leen con el demultiplexor nativo de FFmpeg: conserva las listas maestras, los segmentos de inicialización, el cifrado HLS compatible y las discontinuidades. Usa conexiones HTTP persistentes, descarga anticipada y lectura al ritmo del video para suavizar la entrega a Telegram. Arranca tres segmentos detrás del borde del directo para absorber variaciones de red; ese margen añade retraso según la duración de los segmentos. Se eliminó el descargador por stdin que descartaba segmentos tras un fallo y no interpretaba las etiquetas HLS.
+
+El perfil normal desactiva rotación, corrección cromática y máscaras, usa el preset `ultrafast` y limita los hilos de codificación y filtros para reducir la carga al emitir varias pantallas. Los efectos siguen disponibles mediante configuración explícita. Los cambios se aplican al reiniciar el proceso del bot y volver a iniciar la emisión; no modifican un FFmpeg que ya está ejecutándose. La fluidez final también depende del origen, los recursos del servidor, la subida y el reproductor de Telegram.
 
 ## Si Telegram bloqueó el streaming
 
@@ -95,8 +99,9 @@ Sin cargar el perfil, estos efectos están desactivados y se conserva el logo co
 
 | Variable | Predeterminado | Uso |
 | --- | --- | --- |
-| `STREAM_VIDEO_KBPS` | `1200` | Bitrate de video, entre 300 y 5000 kbps; audio adicional de 128 kbps |
-| `STREAM_ENCODER_THREADS` | `2` | Hilos de codificación por pantalla, entre 1 y 16 |
+| `STREAM_VIDEO_KBPS` | `1800` | Bitrate de video, entre 300 y 5000 kbps; audio adicional de 128 kbps |
+| `STREAM_ENCODER_THREADS` | `2` | Hilos de codificación por pantalla, entre 1 y 16; 0 permite selección automática |
+| `STREAM_ENCODER_PRESET` | `ultrafast` | Preset de libx264; los más lentos requieren más CPU |
 | `STREAM_STALL_SECONDS` | `40` | Tiempo sin avance antes de recuperar, entre 15 y 300 segundos |
 | `STREAM_STARTUP_SECONDS` | `60` | Margen de arranque, entre 20 y 300 segundos |
 
@@ -109,5 +114,7 @@ python -m unittest discover -s tests -p '*_checks.py' -v
 ```
 
 Las pruebas comprueban bloqueos, cancelaciones, errores de arranque, espera entre intentos, ocultación de credenciales y rechazos explícitos. Con FFmpeg y ffprobe instalados también generan señales sintéticas con y sin audio y verifican la salida real de video. No emiten a Telegram ni contactan las fuentes de canales.
+
+La prueba HTTP de HLS sirve una lista maestra desde localhost, exige Referer y simula un HTTP 503 durante la descarga de un segmento. Comprueba recuperación sin huecos de audio/video tanto con MPEG-TS como con fMP4. Para ejecutar solo las pruebas del motor y del codificador: `python -m unittest discover -s tests -p streaming_checks.py -k RuntimeChecks -v` y después el mismo comando con `-k EncoderChecks`.
 
 Opciones de referencia: [FFmpeg](https://ffmpeg.org/ffmpeg.html) y [protocolos de FFmpeg](https://ffmpeg.org/ffmpeg-protocols.html).
