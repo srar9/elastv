@@ -19,55 +19,54 @@ STARTUP_SECONDS = setting("STREAM_STARTUP_SECONDS", 60, 20, 300)
 
 
 def style_filters():
-    """Filtros de video y audio optimizados para máxima fluidez y protección de señal."""
-    # 1. Marco / Picture-in-Picture (85% por defecto para romper hash visual del cuadro completo)
-    inset = setting("STREAM_FRAME_PERCENT", 8, 0, 20)
+    """Modo de video y audio optimizado: 100% nativo, ultra-fluido como en la web."""
+    # Marco PiP opcional (por defecto 0 = pantalla completa 16:9 como en la web)
+    inset = setting("STREAM_FRAME_PERCENT", 0, 0, 20)
     width = int(1280 * (100 - inset * 2) / 100) // 2 * 2
     height = int(720 * (100 - inset * 2) / 100) // 2 * 2
-    color = os.environ.get("STREAM_FRAME_COLOR", "0a0e14").strip().lstrip("#")
+    color = os.environ.get("STREAM_FRAME_COLOR", "000000").strip().lstrip("#")
     if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
-        color = "0a0e14"
-    pad_color = f"0x{color}" if inset else "black"
+        color = "000000"
+    pad_color = f"0x{color}"
 
     video_filters = []
-    # Escala del video
-    video_filters.append(
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
-    )
-
-    # 2. Rotación milimétrica (0.4 grados por defecto entre 0.3 y 0.5)
-    try:
-        rotate_deg = float(os.environ.get("STREAM_ROTATE_DEGREES", "0.4"))
-    except ValueError:
-        rotate_deg = 0.4
-    if rotate_deg != 0:
-        video_filters.append(f"rotate={rotate_deg}*PI/180:ow={width}:oh={height}:fillcolor={pad_color}:bilinear=0")
-
-    # Marco PiP centrado
-    video_filters.append(f"pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1")
-
-    # 3. Corrección de color y contraste incrementado (+contraste 1.09, +saturación 1.08, matiz 3°)
-    if setting("STREAM_COLOR_CORRECTION", 1, 0, 1):
+    
+    if inset > 0:
+        video_filters.append(
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+        )
         try:
-            contrast = float(os.environ.get("STREAM_CONTRAST", "1.09"))
-            saturation = float(os.environ.get("STREAM_SATURATION", "1.08"))
-            brightness = float(os.environ.get("STREAM_BRIGHTNESS", "0.01"))
-            hue_deg = float(os.environ.get("STREAM_HUE_DEGREES", "3"))
+            rotate_deg = float(os.environ.get("STREAM_ROTATE_DEGREES", "0"))
         except ValueError:
-            contrast, saturation, brightness, hue_deg = 1.09, 1.08, 0.01, 3
+            rotate_deg = 0.0
+        if rotate_deg != 0:
+            video_filters.append(f"rotate={rotate_deg}*PI/180:ow={width}:oh={height}:fillcolor={pad_color}:bilinear=0")
+        video_filters.append(f"pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1")
+    else:
+        # Pantalla completa nativa 720p sin bordes ni deformaciones (100% como en la web)
+        video_filters.append("scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
+
+    # Corrección de color (opcional, por defecto 0 = color original fiel de la transmisión)
+    if setting("STREAM_COLOR_CORRECTION", 0, 0, 1):
+        try:
+            contrast = float(os.environ.get("STREAM_CONTRAST", "1.05"))
+            saturation = float(os.environ.get("STREAM_SATURATION", "1.05"))
+            brightness = float(os.environ.get("STREAM_BRIGHTNESS", "0.0"))
+            hue_deg = float(os.environ.get("STREAM_HUE_DEGREES", "0"))
+        except ValueError:
+            contrast, saturation, brightness, hue_deg = 1.05, 1.05, 0.0, 0
         video_filters.append(f"eq=contrast={contrast}:brightness={brightness}:saturation={saturation},hue=h={hue_deg}")
 
-    # 3. Ocultar logo del canal original y marcador con máscara elegante
-    if setting("STREAM_HIDE_LOGOS", 1, 0, 1) and inset > 0:
-        # Esquina superior derecha (logo TV) y superior izquierda (marcador) dentro del área del video
+    # Ocultar logo (opcional, por defecto 0 = imagen limpia sin parches)
+    if setting("STREAM_HIDE_LOGOS", 0, 0, 1) and inset > 0:
         x_logo = 1280 - int(1280 * inset / 100) - 160
         y_top = int(720 * inset / 100) + 12
         x_score = int(1280 * inset / 100) + 14
         video_filters.append(f"drawbox=x={x_logo}:y={y_top}:w=150:h=42:color=0x111620@0.95:t=fill")
         video_filters.append(f"drawbox=x={x_score}:y={y_top}:w=175:h=42:color=0x111620@0.85:t=fill")
 
-    # 4. Superposición con baja opacidad (ruido temporal 3% imperceptible al ojo, altera valor de píxeles)
-    if setting("STREAM_PIXEL_NOISE", 1, 0, 1):
+    # Ruido de píxel (opcional, por defecto 0 = nitidez pura sin sobrecargar CPU)
+    if setting("STREAM_PIXEL_NOISE", 0, 0, 1):
         video_filters.append("noise=c0s=3:allf=t+u")
 
     speed = setting("STREAM_PLAYBACK_PERCENT", 100, 95, 105) / 100
@@ -77,11 +76,9 @@ def style_filters():
     video_filters.append("fps=30")
     video = ",".join(video_filters)
 
-    # 5. Audio: resample inicial
-    audio_filters = ["aresample=48000:async=1000:first_pts=0"]
-
-    # 6. Pitch Shift (+3% por defecto para alterar huella acústica manteniendo velocidad y sincronía)
-    pitch = setting("STREAM_PITCH_PERCENT", 103, 90, 110) / 100
+    # Audio: nativo, cristalino y sincronizado (sin pitch shift ni ruido artificial)
+    audio_filters = ["aresample=48000:async=1:first_pts=0"]
+    pitch = setting("STREAM_PITCH_PERCENT", 100, 90, 110) / 100
     if pitch != 1:
         rate = round(48000 * pitch)
         audio_filters.append(f"asetrate={rate},aresample=48000,atempo={1 / pitch:.8f}")
@@ -92,8 +89,7 @@ def style_filters():
     if setting("STREAM_AUDIO_ECHO", 0, 0, 1):
         audio_filters.append("aecho=0.8:0.88:40:0.08")
 
-    # 7. Ruido de fondo imperceptible (~ -45 dB)
-    noise = setting("STREAM_AUDIO_NOISE", 3, 0, 10) / 1000
+    noise = setting("STREAM_AUDIO_NOISE", 0, 0, 10) / 1000
     if noise:
         audio_filters.append(
             "aformat=channel_layouts=stereo,"
@@ -105,7 +101,7 @@ def style_filters():
 
 
 def build_command(source, headers, destination, progress=False):
-    bitrate = setting("STREAM_VIDEO_KBPS", 1400, 300, 5000)
+    bitrate = setting("STREAM_VIDEO_KBPS", 1800, 300, 5000)
     video_filter, audio_filter, speed = style_filters()
     network_source = bool(urlsplit(source).scheme and not os.path.isfile(source))
     if speed != 1 and network_source:
@@ -124,10 +120,10 @@ def build_command(source, headers, destination, progress=False):
             cmd += ["-headers", headers]
 
     cmd += [
-        "-thread_queue_size", "1024",
+        "-thread_queue_size", "2048",
         "-fflags", "+genpts+discardcorrupt",
-        "-analyzeduration", "3000000",
-        "-probesize", "3000000"
+        "-analyzeduration", "1000000",
+        "-probesize", "1000000"
     ]
 
     # ¡IMPORTANTE PARA FLUIDEZ!: NO usar -re en transmisiones de red en vivo (HLS / m3u8)
@@ -175,12 +171,14 @@ def build_command(source, headers, destination, progress=False):
 
     encoder_threads = str(setting("STREAM_ENCODER_THREADS", 0, 0, 16))
 
+    preset = os.environ.get("STREAM_ENCODER_PRESET", "ultrafast").strip().lower()
+
     cmd += [
         "-map", "0:a:0?", "-sn", "-dn",
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        "-c:v", "libx264", "-preset", preset, "-tune", "zerolatency",
         "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-threads", encoder_threads, "-bf", "0",
-        "-b:v", f"{bitrate}k", "-maxrate", f"{int(bitrate * 1.25)}k", "-bufsize", f"{bitrate * 2}k",
+        "-b:v", f"{bitrate}k", "-maxrate", f"{bitrate}k", "-bufsize", f"{bitrate}k",
         "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
         "-af", audio_filter,
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
