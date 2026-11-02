@@ -30,15 +30,32 @@ def style_filters():
     pad_color = f"0x{color}" if inset else "black"
 
     video_filters = []
-    # Escala y marco PiP
+    # Escala del video
     video_filters.append(
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
-        f"pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1"
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     )
 
-    # 2. Corrección de color sutil (+0.06 saturación, 1.04 contraste, matiz 2°)
+    # 2. Rotación milimétrica (0.4 grados por defecto entre 0.3 y 0.5)
+    try:
+        rotate_deg = float(os.environ.get("STREAM_ROTATE_DEGREES", "0.4"))
+    except ValueError:
+        rotate_deg = 0.4
+    if rotate_deg != 0:
+        video_filters.append(f"rotate={rotate_deg}*PI/180:ow={width}:oh={height}:fillcolor={pad_color}:bilinear=0")
+
+    # Marco PiP centrado
+    video_filters.append(f"pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1")
+
+    # 3. Corrección de color y contraste incrementado (+contraste 1.09, +saturación 1.08, matiz 3°)
     if setting("STREAM_COLOR_CORRECTION", 1, 0, 1):
-        video_filters.append("eq=contrast=1.04:brightness=0.01:saturation=1.06,hue=h=2")
+        try:
+            contrast = float(os.environ.get("STREAM_CONTRAST", "1.09"))
+            saturation = float(os.environ.get("STREAM_SATURATION", "1.08"))
+            brightness = float(os.environ.get("STREAM_BRIGHTNESS", "0.01"))
+            hue_deg = float(os.environ.get("STREAM_HUE_DEGREES", "3"))
+        except ValueError:
+            contrast, saturation, brightness, hue_deg = 1.09, 1.08, 0.01, 3
+        video_filters.append(f"eq=contrast={contrast}:brightness={brightness}:saturation={saturation},hue=h={hue_deg}")
 
     # 3. Ocultar logo del canal original y marcador con máscara elegante
     if setting("STREAM_HIDE_LOGOS", 1, 0, 1) and inset > 0:
