@@ -18,40 +18,98 @@ CHANNEL_PAGES.update({
 })
 
 TARJETA_DIGITAL_CHANNELS = {
-    # ESPN Suite Tarjeta Digital
+    # ESPN Suite
+    "espn": "espn",
+    "espn1": "espn",
+    "espn-1": "espn",
+    "espn2": "espn2",
+    "espn-2": "espn2",
+    "espn3": "espn3",
+    "espn-3": "espn3",
+    "espn4": "espn4",
+    "espn-4": "espn4",
+    "espn5": "espn5",
+    "espn-5": "espn5",
+    "espn6": "espn6",
+    "espn-6": "espn6",
+    "espn7": "espn7",
+    "espn-7": "espn7",
+    "espnpremium": "espnpremium",
+    "espn-premium": "espnpremium",
+    "espnextra": "espnextra",
+    "espn-extra": "espnextra",
     "espnmx": "espnmx",
-    "espn-1": "espnmx",
-    "espn1": "espnmx",
-    "espn": "espnmx",
+    "espn-mx": "espnmx",
     "espn2mx": "espn2mx",
-    "espn-2": "espn2mx",
-    "espn2": "espn2mx",
+    "espn-2mx": "espn2mx",
     "espn3mx": "espn3mx",
-    "espn-3": "espn3mx",
-    "espn3": "espn3mx",
-    # Fox Sports Suite Tarjeta Digital
+    "espn-3mx": "espn3mx",
+    "espn4mx": "espn4mx",
+    # Fox Sports Suite
+    "foxsports": "foxsports",
+    "fox-sports": "foxsports",
+    "foxsports1": "foxsports",
+    "fox-sports-1": "foxsports",
+    "fox1": "foxsports",
+    "fox": "foxsports",
+    "foxsports2": "foxsports2",
+    "fox-sports-2": "foxsports2",
+    "fox2": "foxsports2",
+    "foxsports3": "foxsports3",
+    "fox-sports-3": "foxsports3",
+    "fox3": "foxsports3",
     "foxsportsmx": "foxsportsmx",
-    "fox-sports-1": "foxsportsmx",
-    "foxsports1": "foxsportsmx",
-    "foxsports": "foxsportsmx",
-    "fox1": "foxsportsmx",
-    "fox": "foxsportsmx",
+    "fox-sports-mx": "foxsportsmx",
     "foxsports2mx": "foxsports2mx",
-    "fox-sports-2": "foxsports2mx",
-    "foxsports2": "foxsports2mx",
-    "fox2": "foxsports2mx",
+    "fox-sports-2mx": "foxsports2mx",
     "foxsports3mx": "foxsports3mx",
-    "fox-sports-3": "foxsports3mx",
-    "foxsports3": "foxsports3mx",
-    "fox3": "foxsports3mx",
+    "fox-sports-3mx": "foxsports3mx",
     "foxsportspremium": "foxsportspremium",
     "fox-sports-premium": "foxsportspremium",
     "foxpremium": "foxsportspremium",
-    # TUDN Tarjeta Digital
-    "tudn": "tudn_mx",
-    "tudn-mx": "tudn_mx",
-    "tudnmx": "tudn_mx",
+    # DIRECTV Sports / DSports
+    "dsports": "dsports",
+    "dsports1": "dsports",
+    "dsports-1": "dsports",
+    "dsports2": "dsports2",
+    "dsports-2": "dsports2",
+    "dsportsplus": "dsportsplus",
+    "dsports-plus": "dsportsplus",
+    "dsports3": "dsportsplus",
+    # Latam & Fútbol Internacional
+    "tyc": "tycsports",
+    "tycsports": "tycsports",
+    "tyc-sports": "tycsports",
+    "tntsports": "tntsports",
+    "tnt-sports": "tntsports",
+    "winplus": "winplus",
+    "win-plus": "winplus",
+    "winsports": "winsports",
+    "win-sports": "winsports",
+    "winsports2": "winplus",
+    "liga1max": "liga1max",
+    "liga-1-max": "liga1max",
+    "movistardeportes": "movistardeportes",
+    "movistar-deportes": "movistardeportes",
+    "laligatv": "laligatv",
+    "laliga-tv": "laligatv",
+    "dazn1": "dazn1",
+    "dazn-1": "dazn1",
+    # TUDN & ViX
+    "tudn": "tudn",
     "tudn_mx": "tudn_mx",
+    "tudnmx": "tudn_mx",
+    "tudn-mx": "tudn_mx",
+    "vix1": "vix1",
+    "vix-1": "vix1",
+    "max1": "max1",
+    "max-1": "max1",
+    # TV Abierta
+    "telefe": "telefe",
+    "canal5": "canal5",
+    "canal-5": "canal5",
+    "azteca7": "azteca7",
+    "azteca-7": "azteca7",
 }
 
 CHANNEL_NAMES = {
@@ -160,6 +218,13 @@ def resolve_tarjeta_digital(input_str):
     alt_key = clean.lower().replace("-", "")
     if alt_key in TARJETA_DIGITAL_CHANNELS:
         return resolve_la18hd(TARJETA_DIGITAL_CHANNELS[alt_key])
+
+    # Búsqueda dinámica directa en la18hd.su
+    direct_slug = clean.lower().replace("-", "").replace("_", "")
+    if re.match(r'^[a-z0-9]+$', direct_slug):
+        st, u, msg = resolve_la18hd(direct_slug)
+        if st:
+            return st, u, msg
 
     return None, None, "No es canal de Tarjeta Digital"
 

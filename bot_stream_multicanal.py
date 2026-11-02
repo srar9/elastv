@@ -339,24 +339,15 @@ class SourceUnavailableError(RuntimeError):
 
 def _fetch_single_tr_slug(clean_slug):
     failures = []
-    # 1. Probar en la18hd.su (infraestructura oficial de tarjetarojatv.mobi)
-    page_url_la = f"https://la18hd.su/vivo/canal.php?stream={clean_slug}"
+    # 1. Probar en la18hd.su con headers del navegador y extractor HLS universal
     try:
-        h_la = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://tarjetarojatv.mobi/"
-        }
-        r_page = requests.get(page_url_la, headers=h_la, timeout=8)
-        if r_page.status_code == 200:
-            m_play = re.search(r'var\s+playbackURL\s*=\s*["\']([^"\']+)["\']', r_page.text)
-            if m_play:
-                stream_url = m_play.group(1).replace(r'\/', '/')
-                return stream_url, "https://la18hd.su/", "OK (la18hd directo)"
-            failures.append("Fuente principal: la página no contiene un enlace de video")
-        else:
-            failures.append(f"Fuente principal: HTTP {r_page.status_code}")
+        from channel_source import resolve_la18hd
+        st, u, msg = resolve_la18hd(clean_slug)
+        if st:
+            return st, u, msg
+        failures.append(f"la18hd: {msg}")
     except Exception as e:
-        failures.append(f"Fuente principal: {type(e).__name__}")
+        failures.append(f"la18hd: {type(e).__name__}")
 
     # 2. Fallback a tarjetaroja.my si existiera
     page_url = f"https://tarjetaroja.my/stream/{clean_slug}"
