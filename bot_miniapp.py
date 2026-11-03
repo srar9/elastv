@@ -24,10 +24,15 @@ from web_app import TR_CHANNELS, CATEGORIES_META, fetch_tarjetaroja_schedule, sl
 
 TELEGRAM_MINIAPP_BOT_TOKEN = (os.environ.get("TELEGRAM_MINIAPP_BOT_TOKEN") or "8932891830:AAFIibf3wwLq0JGAvGHVnDcF6rPO_UOIc0U").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_MINIAPP_BOT_TOKEN}"
-WEB_APP_BASE_URL = os.environ.get(
-    "WEB_APP_BASE_URL", 
-    "https://elasdelfutbol-production.up.railway.app"
-)
+
+# Detectar automáticamente el dominio activo de Railway o usar el fallback verificado
+railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("RAILWAY_STATIC_URL")
+if railway_domain:
+    default_base = f"https://{railway_domain}" if not railway_domain.startswith("http") else railway_domain
+else:
+    default_base = "https://web-production-dc68f.up.railway.app"
+
+WEB_APP_BASE_URL = os.environ.get("WEB_APP_BASE_URL", default_base).rstrip("/")
 ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "")
 _env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
 ADMIN_USER_IDS = list(set(_env_admins + ["6467102546"]))
@@ -75,21 +80,27 @@ def send_photo(chat_id, photo, caption=None, reply_markup=None):
         return {"ok": False, "description": str(e)}
 
 def setup_menu_button():
-    try:
-        url = f"{API_URL}/setChatMenuButton"
-        payload = {
-            "menu_button": {
-                "type": "web_app",
-                "text": "📺 Ver Partidos en Vivo",
-                "web_app": {
-                    "url": WEB_APP_BASE_URL
+    tokens_to_setup = [TELEGRAM_MINIAPP_BOT_TOKEN]
+    elciro_token = os.environ.get("ELCIRO_BOT_TOKEN", "8626036800:AAEqCZ-bEXrRCNL2E30gLRvJuCP1piDJwPQ").strip()
+    if elciro_token and elciro_token not in tokens_to_setup:
+        tokens_to_setup.append(elciro_token)
+
+    for tok in tokens_to_setup:
+        try:
+            url = f"https://api.telegram.org/bot{tok}/setChatMenuButton"
+            payload = {
+                "menu_button": {
+                    "type": "web_app",
+                    "text": "📺 Ver Partidos en Vivo",
+                    "web_app": {
+                        "url": WEB_APP_BASE_URL
+                    }
                 }
             }
-        }
-        r = requests.post(url, json=payload, timeout=8)
-        print("Configuración menu_button @Elciroas_bot:", r.json())
-    except Exception as e:
-        print("Error configurando menu_button en bot_miniapp:", e)
+            r = requests.post(url, json=payload, timeout=8)
+            print(f"Configuración menu_button ({tok[:10]}...):", r.json())
+        except Exception as e:
+            print("Error configurando menu_button en bot_miniapp:", e)
 
 def normalize_channel_search(query):
     raw = query.strip()

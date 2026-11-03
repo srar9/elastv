@@ -924,7 +924,8 @@ def get_help_text():
     )
 BOT_COMMANDS = [
     ("partidos", "Agenda completa de hoy · hora de Venezuela"), ("canales", "Canales y señales publicadas"),
-    ("buscar", "Buscar equipos, ligas o canales"), ("espn", "Canales ESPN"),
+    ("buscar", "Buscar equipos, ligas o canales"), ("web", "Abrir la Mini App / Web en vivo"),
+    ("espn", "Canales ESPN"),
     ("stream", "Iniciar transmisión"), ("status", "Estado de transmisiones"),
     ("stop", "Detener una pantalla"), ("stopall", "Detener todas las pantallas"),
     ("key", "Configurar clave de emisión"), ("id", "Consultar tu identificador"),
@@ -932,12 +933,14 @@ BOT_COMMANDS = [
 ]
 
 
-def send_msg(chat_id, text, parse_mode="HTML"):
+def send_msg(chat_id, text, parse_mode="HTML", reply_markup=None):
     success = True
-    for part, mode in telegram_parts(str(text)):
+    for index, (part, mode) in enumerate(telegram_parts(str(text))):
         payload = {"chat_id": chat_id, "text": part, "disable_web_page_preview": True}
         if mode and parse_mode:
             payload["parse_mode"] = mode
+        if reply_markup and index == 0:
+            payload["reply_markup"] = reply_markup
         for attempt in range(3):
             try:
                 response = requests.post(f"{API_URL}/sendMessage", json=payload, timeout=12)
@@ -986,6 +989,32 @@ def handle_message(msg):
 
         if command in ("/start", "/ayuda", "/help", "/comandos", "/inicio"):
             send_msg(chat_id, get_help_text())
+
+        elif command in ("/web", "/app", "/miniapp", "/ver"):
+            railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("RAILWAY_STATIC_URL")
+            base_url = f"https://{railway_domain}" if railway_domain else os.environ.get("WEB_APP_BASE_URL", "https://web-production-dc68f.up.railway.app")
+            clean_url = base_url.rstrip("/")
+            msg_body = (
+                "📱 <b>Mini App & Reproductor Web en Vivo:</b>\n\n"
+                "Accede directamente a la transmisión interactiva y cartelera de eventos:"
+            )
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "▶️ ABRIR MINI APP EN VIVO",
+                            "web_app": {"url": clean_url}
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🌐 Abrir en el Navegador",
+                            "url": clean_url
+                        }
+                    ]
+                ]
+            }
+            send_msg(chat_id, msg_body, reply_markup=keyboard)
 
         elif command in ("/buscar", "/search"):
             parts = text.split(maxsplit=1)
