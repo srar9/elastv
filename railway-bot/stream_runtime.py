@@ -125,7 +125,7 @@ def build_command(source, headers, destination, progress=False):
         cmd += [
             "-reconnect", "1", "-reconnect_streamed", "1",
             "-reconnect_on_network_error", "1", "-reconnect_on_http_error", "408,429,5xx",
-            "-reconnect_delay_max", "2", "-rw_timeout", "15000000"
+            "-reconnect_delay_max", "2", "-rw_timeout", "10000000"
         ]
         if headers:
             cmd += ["-headers", headers]
@@ -133,14 +133,14 @@ def build_command(source, headers, destination, progress=False):
             # Preserve playlist semantics (master playlists, encryption, init
             # segments and discontinuities). Keep a small live cushion and let
             # the demuxer prefetch over persistent HTTP connections.
-            cmd += ["-live_start_index", "-3", "-http_persistent", "1", "-http_multiple", "1",
+            cmd += ["-live_start_index", "-2", "-http_persistent", "1", "-http_multiple", "1",
                     "-seg_max_retry", "3"]
 
     cmd += [
-        "-thread_queue_size", "512",
+        "-thread_queue_size", "4096",
         "-fflags", "+genpts+discardcorrupt",
-        "-analyzeduration", "2000000",
-        "-probesize", "2000000"
+        "-analyzeduration", "1500000",
+        "-probesize", "1500000"
     ]
 
     # HLS downloads arrive in bursts. Pace them at the media clock instead of
@@ -193,11 +193,11 @@ def build_command(source, headers, destination, progress=False):
         "-c:v", "libx264", "-preset", preset, "-tune", "zerolatency",
         "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-threads", encoder_threads, "-bf", "0",
-        "-b:v", f"{bitrate}k", "-maxrate", f"{bitrate}k", "-bufsize", f"{bitrate}k",
+        "-b:v", f"{bitrate}k", "-maxrate", f"{bitrate}k", "-bufsize", f"{bitrate * 2}k",
         "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
         "-af", audio_filter,
         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-        "-avoid_negative_ts", "make_zero", "-max_muxing_queue_size", "2048",
+        "-avoid_negative_ts", "make_zero", "-max_muxing_queue_size", "4096",
         # Wait for both tracks before flushing: fMP4 audio can start earlier
         # than the first video packet, especially after a segment retry.
         "-max_interleave_delta", "0", "-flush_packets", "1",

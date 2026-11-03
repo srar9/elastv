@@ -238,14 +238,10 @@ def resolve_tvf90(stream_slug):
     endpoints = [
         f"https://tvf90.com/5.php?stream={clean}",
         f"https://tvf90.com/plus1.php?stream={clean}",
-        f"https://tvf90.com/plus2.php?stream={clean}",
     ]
     alt = clean.replace("-", "").replace("_", "")
     if alt != clean:
-        endpoints.extend([
-            f"https://tvf90.com/5.php?stream={alt}",
-            f"https://tvf90.com/plus1.php?stream={alt}",
-        ])
+        endpoints.append(f"https://tvf90.com/5.php?stream={alt}")
 
     for test_url in endpoints:
         stream, ref, msg = resolve_player(test_url)
