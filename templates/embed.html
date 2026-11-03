@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <title>{{ channel_name }} - En Vivo</title>
+
+    <!-- Bloqueo absoluto de popups, redirecciones y publicidad intrusiva -->
+    <script>
+        (function() {
+            window.open = function() { 
+                console.warn("[Seguridad] Intento de ventana emergente / popup bloqueado."); 
+                return null; 
+            };
+            window.alert = function() {};
+            window.confirm = function() { return false; };
+            window.prompt = function() { return null; };
+        })();
+    </script>
+
+    <!-- Clappr + P2P Swarmcloud + Hls.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@clappr/player@0.8/dist/clappr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@swarmcloud/hls/p2p-engine.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+        .media-control[data-media-control] .media-control-layer[data-controls] .bar-container[data-seekbar] .bar-background[data-seekbar] {
+            height: 5px !important;
+        }
+        .media-control[data-media-control] .media-control-layer[data-controls] .bar-container[data-seekbar]:hover .bar-background[data-seekbar] {
+            height: 7px !important;
+        }
+        #fallbackVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        #errorNotice {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+            color: #fff;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px;
+            z-index: 999;
+        }
+        .retry-btn {
+            margin-top: 14px;
+            padding: 10px 20px;
+            background: #24A1DE;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(36, 161, 222, 0.4);
+            transition: transform 0.15s, opacity 0.15s;
+        }
+        .retry-btn:active {
+            transform: scale(0.95);
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div id="player"></div>
+
+    <div id="errorNotice">
+        <svg style="width: 44px; height: 44px; color: #f59e0b; margin-bottom: 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        <p style="font-size: 15px; font-weight: 700;">Señal conectando o en rotación de evento</p>
+        <p style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px; max-width: 280px;">
+            La transmisión se sincroniza automáticamente al iniciar el partido.
+        </p>
+        <button class="retry-btn" onclick="location.reload()">
+            🔄 Reconectar Señal en Vivo
+        </button>
+    </div>
+
+    <script>
+        var playbackURL = {{ stream_url | tojson }};
+        var p2pConfig = {
+            live: true,
+            trackerZone: "us"
+        };
+        var playerInstance = null;
+
+        function startClappr() {
+            if (!playbackURL) {
+                document.getElementById("errorNotice").style.display = "flex";
+                return;
+            }
+
+            try {
+                playerInstance = new Clappr.Player({
+                    source: playbackURL,
+                    parentId: "#player",
+                    width: "100%",
+                    height: "100%",
+                    autoPlay: true,
+                    mute: false,
+                    playback: {
+                        playInline: true,
+                        recycleVideo: true,
+                        hlsjsConfig: {
+                            enableWorker: true,
+                            liveSyncDurationCount: 3,
+                            liveMaxLatencyDurationCount: 6,
+                            maxBufferLength: 30,
+                            maxMaxBufferLength: 60
+                        }
+                    },
+                    mediacontrol: {
+                        seekbar: "#24A1DE",
+                        buttons: "#FFFFFF"
+                    },
+                    events: {
+                        onError: function(err) {
+                            console.warn("Clappr error detectado, activando fallback nativo Hls.js:", err);
+                            startHlsFallback();
+                        }
+                    }
+                });
+
+                if (window.P2PEngineHls) {
+                    try {
+                        p2pConfig.hlsjsInstance = playerInstance.core.getCurrentPlayback()?._hls;
+                        new P2PEngineHls(p2pConfig);
+                    } catch(e) {}
+                }
+            } catch(e) {
+                console.error("Error iniciando Clappr:", e);
+                startHlsFallback();
+            }
+        }
+
+        function startHlsFallback() {
+            var playerContainer = document.getElementById("player");
+            playerContainer.innerHTML = '<video id="fallbackVideo" controls autoplay playsinline webkit-playsinline></video>';
+            var video = document.getElementById("fallbackVideo");
+
+            if (window.Hls && Hls.isSupported()) {
+                var hls = new Hls({
+                    enableWorker: true,
+                    liveSyncDurationCount: 3,
+                    maxBufferLength: 30
+                });
+                hls.loadSource(playbackURL);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    var playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(function() {
+                            // Autoplay con sonido restringido por navegador: silenciar y reproducir
+                            video.muted = true;
+                            video.play();
+                        });
+                    }
+                });
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data && data.fatal) {
+                        document.getElementById("errorNotice").style.display = "flex";
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Compatibilidad nativa para Safari / iOS / Mac
+                video.src = playbackURL;
+                video.addEventListener('loadedmetadata', function() {
+                    var playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(function() {
+                            video.muted = true;
+                            video.play();
+                        });
+                    }
+                });
+            } else {
+                document.getElementById("errorNotice").style.display = "flex";
+            }
+        }
+
+        if (window.P2PEngineHls && typeof P2PEngineHls.tryRegisterServiceWorker === "function") {
+            P2PEngineHls.tryRegisterServiceWorker(p2pConfig).then(startClappr).catch(startClappr);
+        } else {
+            startClappr();
+        }
+    </script>
+</body>
+</html>

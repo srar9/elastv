@@ -332,6 +332,15 @@ def resolve_tarjetarojatv_stream(channel_slug):
     mapped_info = TR_CHANNELS.get(clean_slug)
     actual_slug = mapped_info["slug"] if mapped_info else clean_slug
 
+    # Si viene con prefijo sintético de evento (ej: ev40363_4_espn-movil)
+    m_ev = re.match(r'^ev\d+_\d+_(.*)', clean_slug)
+    if m_ev:
+        candidate_tag = m_ev.group(1).replace("-", "").replace("_", "")
+        for k, v in TR_CHANNELS.items():
+            if k in candidate_tag or candidate_tag in k:
+                actual_slug = v["slug"]
+                break
+
     # 1. Probar en tvf90.com (CDN ftlly.com - alta compatibilidad sin bloqueo 403 en Railway)
     from channel_source import resolve_tvf90
     tv_stream, tv_ref, tv_st = resolve_tvf90(clean_slug)
@@ -352,15 +361,6 @@ def resolve_tarjetarojatv_stream(channel_slug):
         data = {"slug": clean_slug, "stream_url": stream, "iframe_url": ref, "status": status}
         STREAM_RESOLVER_CACHE[clean_slug] = {"timestamp": now, "data": data}
         return data
-
-    # Si viene con prefijo sintético de evento (ej: ev40363_4_espn-movil)
-    m_ev = re.match(r'^ev\d+_\d+_(.*)', clean_slug)
-    if m_ev:
-        candidate_tag = m_ev.group(1).replace("-", "").replace("_", "")
-        for k, v in TR_CHANNELS.items():
-            if k in candidate_tag or candidate_tag in k:
-                actual_slug = v["slug"]
-                break
 
     slug_candidates = [actual_slug]
     if clean_slug != actual_slug:
@@ -822,14 +822,51 @@ def hls_proxy_segment(slug):
 @app.route("/embed/<slug>")
 def embed_view(slug):
     """
-    Proxy que purifica completamente los iframes eliminando cualquier script
-    de publicidad (aclib, llvpn, luugy, popunders, redirecciones forzadas).
+    Reproductor purificado 100% nativo.
+    Si se dispone de stream_url directo (.m3u8), renderiza embed.html con Clappr y Hls.js
+    sin ningún script externo de publicidad, popups ni bloqueos de sandbox.
     """
     clean_slug = slug.strip().lower().replace("_", "-")
+    channel_name = TR_CHANNELS.get(clean_slug, {}).get("name", clean_slug.upper())
+
+    # 1. Intentar resolver la señal directa HLS
     stream_data = resolve_tarjetarojatv_stream(clean_slug)
+    stream_url = stream_data.get("stream_url") if stream_data else None
+
+    # 2. Si no se obtuvo stream_url directo, intentar via tvf90 o roja
+    if not stream_url:
+        try:
+            from channel_source import resolve_tvf90, resolve_roja_source
+            tv_stream, _, _ = resolve_tvf90(clean_slug)
+            if tv_stream:
+                stream_url = tv_stream
+            else:
+                roja_stream, _, _ = resolve_roja_source(clean_slug)
+                if roja_stream:
+                    stream_url = roja_stream
+        except Exception as e:
+            print("Aviso resolviendo fallback en embed_view:", e)
+
+    if stream_url:
+        response = app.make_response(render_template(
+            "embed.html",
+            stream_url=stream_url,
+            channel_name=channel_name,
+            slug=clean_slug
+        ))
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+
     iframe_url = stream_data.get("iframe_url") if stream_data else None
     if not iframe_url:
-        return "Canal no disponible", 404
+        response = app.make_response(render_template(
+            "embed.html",
+            stream_url="",
+            channel_name=channel_name,
+            slug=clean_slug
+        ))
+        return response, 404
 
     try:
         headers = dict(HEADERS_BASE)
@@ -840,20 +877,27 @@ def embed_view(slug):
 
         html_content = r.text
 
-        # 1. Eliminar scripts publicitarios conocidos (sin borrar Clappr)
+        # Intentar extraer m3u8 del iframe si no se había detectado
+        m_m3u8 = re.search(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', html_content)
+        if m_m3u8:
+            return render_template(
+                "embed.html",
+                stream_url=m_m3u8.group(0),
+                channel_name=channel_name,
+                slug=clean_slug
+            )
+
+        # Desinfectar drásticamente cualquier script publicitario o de redirección
         html_content = re.sub(r'<script\b[^>]*src=["\'][^"\']*(?:aclib|llvpn|luugy|adcash|popunder|onclick|track)[^"\']*["\'][^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?aclib\.runPop.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:11545073|11645073|11918478).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:aclib|llvpn|11228974|11545073|11645073|11918478|dataset\.zone).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:block\.html|nosandbox|hasAttribute).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        html_content = html_content.replace('/block.html', '')
 
-        # 2. Desactivar detección de sandbox
-        html_content = html_content.replace('.hasAttribute("sandbox")', '.hasAttribute("nosandbox")')
-        html_content = html_content.replace("hasAttribute('sandbox')", "hasAttribute('nosandbox')")
-
-        # 3. Inyectar anulador de popups en el encabezado
+        # Anulador definitivo de popups
         anti_pop_script = """
         <script>
         (function() {
-            window.open = function() { console.log('Bloqueado intento de popup'); return null; };
+            window.open = function() { console.warn('Bloqueado popup publicitario'); return null; };
             window.alert = function() {};
             window.confirm = function() { return false; };
             window.prompt = function() { return null; };
