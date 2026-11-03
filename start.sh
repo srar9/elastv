@@ -31,13 +31,5 @@ if [ "$ELCIRO_TOKEN" != "$BOT1_TOKEN" ]; then
     done &
 fi
 
-# 3. Iniciar Bot 3: Mini App y difusion (@Elciroas_bot) en segundo plano
-while true; do
-    echo "Iniciando bot_miniapp.py..."
-    python -u bot_miniapp.py
-    echo "bot_miniapp.py termino inesperadamente. Reiniciando en 3s..."
-    sleep 3
-done &
-
-# 4. Iniciar la aplicacion web en primer plano vinculada al puerto de Railway ($PORT o 8080)
+# 3. Iniciar la aplicacion web en primer plano vinculada al puerto de Railway ($PORT o 8080)
 exec gunicorn web_app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 12 --timeout 120
