@@ -14,8 +14,8 @@ def setting(name, default, minimum, maximum):
         return default
 
 
-STALL_SECONDS = setting("STREAM_STALL_SECONDS", 40, 15, 300)
-STARTUP_SECONDS = setting("STREAM_STARTUP_SECONDS", 60, 20, 300)
+STALL_SECONDS = setting("STREAM_STALL_SECONDS", 15, 8, 300)
+STARTUP_SECONDS = setting("STREAM_STARTUP_SECONDS", 35, 12, 300)
 
 
 def is_hls_source(source):
@@ -110,14 +110,14 @@ def style_filters():
 
 
 def build_command(source, headers, destination, progress=False):
-    bitrate = setting("STREAM_VIDEO_KBPS", 1800, 300, 5000)
+    bitrate = setting("STREAM_VIDEO_KBPS", 1400, 300, 5000)
     video_filter, audio_filter, speed = style_filters()
     network_source = bool(urlsplit(source).scheme and not os.path.isfile(source))
     if speed != 1 and network_source:
         raise ValueError("STREAM_PLAYBACK_PERCENT debe ser 100 para fuentes de red en directo")
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-nostdin",
-           "-filter_threads", "2"]
+           "-filter_threads", "0"]
     if progress:
         cmd += ["-progress", "pipe:1", "-stats_period", "2"]
 
@@ -133,7 +133,7 @@ def build_command(source, headers, destination, progress=False):
             # Preserve playlist semantics (master playlists, encryption, init
             # segments and discontinuities). Keep a small live cushion and let
             # the demuxer prefetch over persistent HTTP connections.
-            cmd += ["-live_start_index", "-2", "-http_persistent", "1", "-http_multiple", "1",
+            cmd += ["-live_start_index", "-3", "-http_persistent", "1", "-http_multiple", "1",
                     "-seg_max_retry", "3"]
 
     cmd += [
@@ -143,10 +143,15 @@ def build_command(source, headers, destination, progress=False):
         "-probesize", "1500000"
     ]
 
-    # HLS downloads arrive in bursts. Pace them at the media clock instead of
-    # sending bursts to RTMP and then waiting idle for the next segment.
+    # HLS downloads arrive in bursts. Buffer and catch up dynamically to prevent freezes.
     if not network_source or is_hls_source(source):
-        cmd += ["-re"] if speed == 1 else ["-readrate", str(speed)]
+        if speed == 1:
+            if is_hls_source(source):
+                cmd += ["-re", "-readrate_initial_burst", "6.0", "-readrate_catchup", "1.5"]
+            else:
+                cmd += ["-re"]
+        else:
+            cmd += ["-readrate", str(speed)]
     cmd += ["-i", source]
 
     # Logo overlay: solo si se especifica explícitamente en STREAM_LOGO_PATH
@@ -175,7 +180,7 @@ def build_command(source, headers, destination, progress=False):
         cmd += [
             "-thread_queue_size", "512",
             "-loop", "1", "-framerate", "1", "-i", logo,
-            "-filter_complex_threads", "2", "-filter_complex",
+            "-filter_complex_threads", "0", "-filter_complex",
             f"[0:v:0]{video_filter}[base];"
             f"[1:v:0]scale=w={width}:h=180:force_original_aspect_ratio=decrease,"
             f"format=rgba,colorchannelmixer=aa={opacity}[logo];"
@@ -185,7 +190,7 @@ def build_command(source, headers, destination, progress=False):
     else:
         cmd += ["-map", "0:v:0", "-vf", video_filter]
 
-    encoder_threads = str(setting("STREAM_ENCODER_THREADS", 2, 0, 16))
+    encoder_threads = str(setting("STREAM_ENCODER_THREADS", 0, 0, 16))
     preset = os.environ.get("STREAM_ENCODER_PRESET", "ultrafast").strip().lower()
 
     cmd += [

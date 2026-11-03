@@ -18,7 +18,7 @@ import unicodedata
 import uuid
 from datetime import datetime, timezone, timedelta
 from stream_runtime import launch, health, stop_process, safe_tail, retry_delay, explicit_rejection
-from channel_source import resolve_roja_source, resolve_player, CHANNEL_NAMES, CHANNEL_PAGES
+from channel_source import resolve_roja_source, resolve_player, resolve_tvf90, resolve_tarjeta_digital, CHANNEL_NAMES, CHANNEL_PAGES
 from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ
 from bot_catalog import normalize_command, agenda_messages, live_now_messages, pack_blocks, event_blocks, fold, telegram_parts
 
@@ -392,7 +392,6 @@ def resolve_tarjetaroja_stream(channel_slug):
     clean_slug = channel_slug.strip().lower().replace("_", "-")
 
     # 1. Probar primero en tvf90.com (CDN ftlly.com - máxima compatibilidad en Railway / servidores nube)
-    from channel_source import resolve_tvf90, resolve_tarjeta_digital, resolve_roja_source
     tv_url, tv_ref, tv_st = resolve_tvf90(clean_slug)
     if tv_url:
         return tv_url, tv_ref, tv_st

@@ -204,7 +204,9 @@ class SupervisorChecks(unittest.TestCase):
     def test_source_rejection_reports_origin_without_starting_encoder(self):
         bot.active_streams.clear()
         response = Mock(status_code=403)
-        with patch.object(bot, "resolve_roja_source", return_value=(None, None, "Sin fuente nueva")), \
+        with patch.object(bot, "resolve_tvf90", return_value=(None, None, "Sin fuente tvf90")), \
+                patch.object(bot, "resolve_tarjeta_digital", return_value=(None, None, "Sin fuente td")), \
+                patch.object(bot, "resolve_roja_source", return_value=(None, None, "Sin fuente nueva")), \
                 patch.object(bot.requests, "get", side_effect=[response, requests.ConnectionError("secret-url")]), \
                 patch.object(bot, "launch_ffmpeg_process") as launch:
             success, message = bot.start_single_stream("espn", "private-key", 1)
