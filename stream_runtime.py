@@ -117,7 +117,7 @@ def build_command(source, headers, destination, progress=False):
         raise ValueError("STREAM_PLAYBACK_PERCENT debe ser 100 para fuentes de red en directo")
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-nostdin",
-           "-filter_threads", "0"]
+           "-filter_threads", "2"]
     if progress:
         cmd += ["-progress", "pipe:1", "-stats_period", "2"]
 
@@ -143,15 +143,9 @@ def build_command(source, headers, destination, progress=False):
         "-probesize", "1500000"
     ]
 
-    # HLS downloads arrive in bursts. Buffer and catch up dynamically to prevent freezes.
+    # HLS downloads arrive in bursts. Pace them at the media clock.
     if not network_source or is_hls_source(source):
-        if speed == 1:
-            if is_hls_source(source):
-                cmd += ["-re", "-readrate_initial_burst", "6.0", "-readrate_catchup", "1.5"]
-            else:
-                cmd += ["-re"]
-        else:
-            cmd += ["-readrate", str(speed)]
+        cmd += ["-re"] if speed == 1 else ["-readrate", str(speed)]
     cmd += ["-i", source]
 
     # Logo overlay: solo si se especifica explícitamente en STREAM_LOGO_PATH
@@ -180,7 +174,7 @@ def build_command(source, headers, destination, progress=False):
         cmd += [
             "-thread_queue_size", "512",
             "-loop", "1", "-framerate", "1", "-i", logo,
-            "-filter_complex_threads", "0", "-filter_complex",
+            "-filter_complex_threads", "2", "-filter_complex",
             f"[0:v:0]{video_filter}[base];"
             f"[1:v:0]scale=w={width}:h=180:force_original_aspect_ratio=decrease,"
             f"format=rgba,colorchannelmixer=aa={opacity}[logo];"
