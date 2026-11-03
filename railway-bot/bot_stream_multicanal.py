@@ -26,7 +26,7 @@ from bot_catalog import normalize_command, agenda_messages, live_now_messages, p
 TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "9281285181:AAEo_hAjJo-zd537Kvz-f4QcU3iG-aUNGzo").strip()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 BOT_USERNAME = "Tvelas_bot"
-CONFIG_FILE = "stream_config.json"
+CONFIG_FILE = os.environ.get("STREAM_CONFIG_FILE", "stream_config.json")
 
 ADMIN_IDS_RAW = os.environ.get("ADMIN_USER_IDS", "").strip()
 _env_admins = [x.strip() for x in ADMIN_IDS_RAW.split(",") if x.strip()]
@@ -901,25 +901,27 @@ def search_tarjetaroja(query, curr_key=None):
     return "\n\n".join(blocks)
 
 
-HELP_TEXT = (
-    "⚽ <b>TV ELAS · TRANSMISIÓN TELEGRAM</b>\n"
-    "<i>Soporte completo de partidos y canales desde tarjetadigital.club</i>\n\n"
-    "<code>/envivo</code> · Partidos en juego AHORA MISMO (hora de Venezuela).\n    <code>/partidos [N]</code> · Cartelera completa de hoy (o por página: /partidos 2).\n"
-    "<code>/canales</code> · Directorio de canales (Tarjeta Digital, ESPN, Fox, etc.).\n"
-    "<code>/canales espn</code> · Filtrar canales por nombre.\n"
-    "<code>/buscar equipo o liga</code> · Buscar partidos o señales en vivo.\n"
-    "<code>/stream CANAL</code> · Transmitir canal (ej: <code>/stream espnmx</code>, <code>/stream tudn</code>).\n"
-    "<code>/c1 CANAL</code> · Transmitir en Canal / Pantalla 1 (ej: <code>/c1 espnmx</code>).\n"
-    "<code>/c2 CANAL</code> · Transmitir en Canal / Pantalla 2 (ej: <code>/c2 foxsportsmx</code>).\n"
-    "<code>/stream URL</code> · Transmitir URL de tarjetadigital.club o .m3u8 directo.\n"
-    "<code>/status</code> · Estado técnico y tiempo de emisiones activas.\n"
-    "<code>/stop 1</code> · Detener pantalla 1.\n"
-    "<code>/stopall</code> · Detener todas las pantallas activas.\n"
-    "<code>/key NUEVA_CLAVE</code> · Configurar Stream Key de Telegram.\n"
-    "<code>/id</code> · Consultar tu ID de Telegram.\n"
-    "<code>/ayuda</code> · Mostrar este menú de ayuda.\n\n"
-    "Alias: /agenda, /hoy, /deportes, /menu."
-)
+def get_help_text():
+    title = "EL CIRO TV" if "elciro" in BOT_USERNAME.lower() else "TV ELAS"
+    return (
+        f"⚽ <b>{title} · TRANSMISIÓN TELEGRAM (100% LIMPIA)</b>\n"
+        "<i>Transmisión oficial en vivo 100% limpia sin filtros ni publicidad externa</i>\n\n"
+        "<code>/envivo</code> · Partidos en juego AHORA MISMO (hora de Venezuela).\n"
+        "<code>/partidos [N]</code> · Cartelera completa de hoy (o por página: /partidos 2).\n"
+        "<code>/canales</code> · Directorio de canales (Tarjeta Digital, ESPN, Fox, MAX, ViX, etc.).\n"
+        "<code>/canales espn</code> · Filtrar canales por nombre.\n"
+        "<code>/buscar equipo o liga</code> · Buscar partidos o señales en vivo.\n"
+        "<code>/stream CANAL [CLAVE]</code> · Transmitir señal limpia (ej: <code>/stream espn TU_CLAVE</code>).\n"
+        "<code>/c1 CANAL</code> · Transmitir en Pantalla 1 (ej: <code>/c1 espnmx</code>).\n"
+        "<code>/c2 CANAL</code> · Transmitir en Pantalla 2 (ej: <code>/c2 foxsportsmx</code>).\n"
+        "<code>/status</code> · Estado técnico y tiempo de emisiones activas.\n"
+        "<code>/stop 1</code> · Detener pantalla 1.\n"
+        "<code>/stopall</code> · Detener todas las pantallas activas.\n"
+        "<code>/key NUEVA_CLAVE</code> · Configurar Stream Key de Telegram.\n"
+        "<code>/id</code> · Consultar tu ID de Telegram.\n"
+        "<code>/ayuda</code> · Mostrar este menú de ayuda.\n\n"
+        "Alias: /agenda, /hoy, /deportes, /menu."
+    )
 BOT_COMMANDS = [
     ("partidos", "Agenda completa de hoy · hora de Venezuela"), ("canales", "Canales y señales publicadas"),
     ("buscar", "Buscar equipos, ligas o canales"), ("espn", "Canales ESPN"),
@@ -983,7 +985,7 @@ def handle_message(msg):
         curr_key = CONFIG.get("stream_key", "3936015063:nG8N_no46UfNuA6jXewiag")
 
         if command in ("/start", "/ayuda", "/help", "/comandos", "/inicio"):
-            send_msg(chat_id, HELP_TEXT)
+            send_msg(chat_id, get_help_text())
 
         elif command in ("/buscar", "/search"):
             parts = text.split(maxsplit=1)

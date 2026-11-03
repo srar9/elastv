@@ -30,13 +30,22 @@ def is_hls_source(source):
 
 def style_filters():
     """Presentation effects are opt-in so live encoding stays inexpensive."""
+    color = os.environ.get("STREAM_FRAME_COLOR", "102A43").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
+        raise ValueError("STREAM_FRAME_COLOR debe ser un color RRGGBB")
+
+    clean_mode = os.environ.get("STREAM_CLEAN_MODE", "").strip().lower() in ("1", "true", "yes")
+    if clean_mode and os.environ.get("STREAM_PLAYBACK_PERCENT", "100") == "100":
+        return (
+            "scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30",
+            "aresample=48000:async=1:first_pts=0",
+            1
+        )
+
     # Marco y reencuadre opcionales.
     inset = setting("STREAM_FRAME_PERCENT", 0, 0, 20)
     width = int(1280 * (100 - inset * 2) / 100) // 2 * 2
     height = int(720 * (100 - inset * 2) / 100) // 2 * 2
-    color = os.environ.get("STREAM_FRAME_COLOR", "102A43").strip().lstrip("#")
-    if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
-        raise ValueError("STREAM_FRAME_COLOR debe ser un color RRGGBB")
     pad_color = f"0x{color}" if inset else "black"
 
     video_filters = []
@@ -148,8 +157,9 @@ def build_command(source, headers, destination, progress=False):
         cmd += ["-re"] if speed == 1 else ["-readrate", str(speed)]
     cmd += ["-i", source]
 
-    # Logo overlay: solo si se especifica explícitamente en STREAM_LOGO_PATH
-    logo = os.environ.get("STREAM_LOGO_PATH", "").strip()
+    # Logo overlay: solo si se especifica explícitamente en STREAM_LOGO_PATH y no estamos en clean_mode
+    clean_mode = os.environ.get("STREAM_CLEAN_MODE", "").strip().lower() in ("1", "true", "yes")
+    logo = "" if clean_mode else os.environ.get("STREAM_LOGO_PATH", "").strip()
     if logo:
         logo = os.path.abspath(os.path.expanduser(logo))
         if not os.path.isfile(logo):

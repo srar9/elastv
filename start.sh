@@ -1,13 +1,38 @@
 #!/bin/sh
-# Iniciar el bot de streaming RTMP en segundo plano con autoreinicio continuo (Bot 1: @Elciro_bot)
+
+# Forzar modo limpio por defecto: 100% nativo, sin marcos, sin filtros, sin distorsión de audio
+export STREAM_CLEAN_MODE="${STREAM_CLEAN_MODE:-1}"
+export STREAM_FRAME_PERCENT=0
+export STREAM_COLOR_CORRECTION=0
+export STREAM_HIDE_LOGOS=0
+export STREAM_PIXEL_NOISE=0
+export STREAM_PITCH_PERCENT=100
+export STREAM_AUDIO_NOISE=0
+export STREAM_AUDIO_ECHO=0
+export STREAM_LOGO_PATH=""
+
+# 1. Iniciar Bot 1 (@Tvelas_bot / TELEGRAM_BOT_TOKEN) en segundo plano
+BOT1_TOKEN="${TELEGRAM_BOT_TOKEN:-9281285181:AAEo_hAjJo-zd537Kvz-f4QcU3iG-aUNGzo}"
 while true; do
-    echo "Iniciando bot_stream_multicanal.py..."
-    python -u bot_stream_multicanal.py
-    echo "bot_stream_multicanal.py termino inesperadamente. Reiniciando en 3s..."
+    echo "Iniciando Bot 1 (Tvelas_bot)..."
+    TELEGRAM_BOT_TOKEN="$BOT1_TOKEN" STREAM_CONFIG_FILE="stream_config_bot1.json" python -u bot_stream_multicanal.py
+    echo "Bot 1 termino inesperadamente. Reiniciando en 3s..."
     sleep 3
 done &
 
-# Iniciar el bot de Mini App y difusion en segundo plano con autoreinicio continuo (Bot 2: @Elciroas_bot)
+# 2. Iniciar Bot 2: ElCiro TV Bot (@Elciro_bot / @elcirotv_bot) en segundo plano
+# Si el usuario configura ELCIRO_BOT_TOKEN usará ese token; por defecto usa el token de @Elciro_bot
+ELCIRO_TOKEN="${ELCIRO_BOT_TOKEN:-8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE}"
+if [ "$ELCIRO_TOKEN" != "$BOT1_TOKEN" ]; then
+    while true; do
+        echo "Iniciando Bot ElCiro TV (Elciro_bot)..."
+        TELEGRAM_BOT_TOKEN="$ELCIRO_TOKEN" STREAM_CONFIG_FILE="stream_config_elciro.json" python -u bot_stream_multicanal.py
+        echo "Bot ElCiro TV termino inesperadamente. Reiniciando en 3s..."
+        sleep 3
+    done &
+fi
+
+# 3. Iniciar Bot 3: Mini App y difusion (@Elciroas_bot) en segundo plano
 while true; do
     echo "Iniciando bot_miniapp.py..."
     python -u bot_miniapp.py
@@ -15,5 +40,5 @@ while true; do
     sleep 3
 done &
 
-# Iniciar la aplicacion web en primer plano vinculada al puerto de Railway ($PORT o 8080)
+# 4. Iniciar la aplicacion web en primer plano vinculada al puerto de Railway ($PORT o 8080)
 exec gunicorn web_app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 12 --timeout 120

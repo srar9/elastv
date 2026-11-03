@@ -332,6 +332,16 @@ def resolve_tarjetarojatv_stream(channel_slug):
     mapped_info = TR_CHANNELS.get(clean_slug)
     actual_slug = mapped_info["slug"] if mapped_info else clean_slug
 
+    # 1. Probar en tvf90.com (CDN ftlly.com - alta compatibilidad sin bloqueo 403 en Railway)
+    from channel_source import resolve_tvf90
+    tv_stream, tv_ref, tv_st = resolve_tvf90(clean_slug)
+    if not tv_stream and actual_slug != clean_slug:
+        tv_stream, tv_ref, tv_st = resolve_tvf90(actual_slug)
+    if tv_stream:
+        data = {"slug": clean_slug, "stream_url": tv_stream, "iframe_url": tv_ref, "status": tv_st}
+        STREAM_RESOLVER_CACHE[clean_slug] = {"timestamp": now, "data": data}
+        return data
+
     stream, ref, status = resolve_roja_source(actual_slug)
     if not stream:
         fetch_tarjetarojatv_schedule()
