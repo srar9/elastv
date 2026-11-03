@@ -229,12 +229,33 @@ def resolve_tarjeta_digital(input_str):
     return None, None, "No es canal de Tarjeta Digital"
 
 
-def resolve_roja_source(slug):
-    # Probar primero en Tarjeta Digital si coincide
-    td_stream, td_url, td_status = resolve_tarjeta_digital(slug)
-    if td_stream:
-        return td_stream, td_url, td_status
+def resolve_tvf90(stream_slug):
+    """Resuelve canales desde tvf90.com (CDN ftlly.com), altamente compatible con servidores cloud."""
+    clean = str(stream_slug).strip().lower()
+    if not clean:
+        return None, None, "Slug vacío"
 
+    endpoints = [
+        f"https://tvf90.com/5.php?stream={clean}",
+        f"https://tvf90.com/plus1.php?stream={clean}",
+        f"https://tvf90.com/plus2.php?stream={clean}",
+    ]
+    alt = clean.replace("-", "").replace("_", "")
+    if alt != clean:
+        endpoints.extend([
+            f"https://tvf90.com/5.php?stream={alt}",
+            f"https://tvf90.com/plus1.php?stream={alt}",
+        ])
+
+    for test_url in endpoints:
+        stream, ref, msg = resolve_player(test_url)
+        if stream:
+            return stream, ref, "OK (tvf90 / ftlly)"
+
+    return None, None, "tvf90: sin señal"
+
+
+def resolve_roja_source(slug):
     page = CHANNEL_PAGES.get(slug)
     if not page:
         return None, None, "Sin alias en el directorio nuevo"

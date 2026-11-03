@@ -391,7 +391,12 @@ def _fetch_single_tr_slug(clean_slug):
 def resolve_tarjetaroja_stream(channel_slug):
     clean_slug = channel_slug.strip().lower().replace("_", "-")
 
-    from channel_source import resolve_tarjeta_digital
+    # 1. Probar primero en tvf90.com (CDN ftlly.com - máxima compatibilidad en Railway / servidores nube)
+    from channel_source import resolve_tvf90, resolve_tarjeta_digital, resolve_roja_source
+    tv_url, tv_ref, tv_st = resolve_tvf90(clean_slug)
+    if tv_url:
+        return tv_url, tv_ref, tv_st
+
     td_url, td_ref, td_status = resolve_tarjeta_digital(clean_slug)
     if td_url:
         return td_url, td_ref, td_status
@@ -453,10 +458,12 @@ def resolve_stream_source(channel_input):
     stream_url, iframe_ref, status_info = resolve_tarjetaroja_stream(resolved_slug)
     if stream_url:
         origin_line = ""
-        if (iframe_ref and "la18hd" in str(iframe_ref)) or "fubo" in str(stream_url) or "la18hd" in str(stream_url):
+        if (iframe_ref and "tvf90" in str(iframe_ref)) or "ftlly" in str(stream_url):
+            origin_line = "Origin: https://tvf90.com\r\n"
+        elif (iframe_ref and "la18hd" in str(iframe_ref)) or "fubo" in str(stream_url) or "la18hd" in str(stream_url):
             origin_line = "Origin: https://la18hd.su\r\n"
-        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://tarjetadigital.club/\r\n"
-        headers_str = f"{ref_header}{origin_line}User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+        ref_header = f"Referer: {iframe_ref}\r\n" if iframe_ref else "Referer: https://tvf90.com/\r\n"
+        headers_str = f"{ref_header}{origin_line}User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36\r\n"
         return stream_url, headers_str, channel_name, resolved_slug, True
 
     raise SourceUnavailableError(status_info or "El origen no entregó un enlace de video")
@@ -571,6 +578,12 @@ def start_single_stream(channel_input, stream_key, chat_id, requested_slot=None)
                 out_f.close()
                 reservation["auto_restart"] = False
                 reservation["status"] = "rejected"
+                if "403" in logs.lower():
+                    return False, (
+                        "⚠️ <b>El servidor de origen rechazó el acceso (HTTP 403 Forbidden).</b>\n\n"
+                        "💡 <b>Causa:</b> La red emisora o Cloudflare bloqueó la IP de este servidor (común en servidores de nube como Railway/AWS).\n\n"
+                        "👉 <b>Solución:</b> Ejecuta el bot en tu PC local usando <code>ejecutar_bot_en_pc.bat</code>, donde tu conexión de hogar no está bloqueada por el origen."
+                    )
                 return False, (
                     "⚠️ <b>El servidor rechazó el acceso.</b> Se pausaron los reintentos.\n"
                     "Revisa el aviso de Telegram, la sala, la URL del servidor y la clave. "
@@ -788,7 +801,10 @@ def supervise_once():
                     info["log_handle"].close()
                 info["auto_restart"] = False
                 info["status"] = "rejected"
-                info["last_error"] = "Acceso rechazado explícitamente. Revisa el aviso, la sala y las credenciales antes de iniciar otra vez."
+                if "403" in logs.lower():
+                    info["last_error"] = "Origen rechazó el acceso (HTTP 403 Forbidden). IP de hosting bloqueada por el CDN."
+                else:
+                    info["last_error"] = "Acceso rechazado explícitamente. Revisa el aviso, la sala y las credenciales antes de iniciar otra vez."
                 continue
             if now < info.get("next_retry", 0):
                 continue
@@ -1164,6 +1180,11 @@ def restore_streams_from_environment():
 
 def main():
     global BOT_USERNAME
+    bot_enabled = os.environ.get("BOT_ENABLED", "true").strip().lower()
+    if bot_enabled in ("false", "0", "no", "off"):
+        print("Modo standby: BOT_ENABLED está configurado en false. El bot no consultará Telegram.")
+        while True:
+            time.sleep(3600)
     print("=" * 65)
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)

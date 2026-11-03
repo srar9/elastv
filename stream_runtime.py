@@ -328,4 +328,5 @@ def explicit_rejection(log_text):
     return any(marker in text for marker in (
         "netstream.publish.badname", "netstream.publish.denied",
         "netconnection.connect.rejected", "authentication failed",
+        "403 forbidden", "server returned 403",
     ))
