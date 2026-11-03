@@ -20,12 +20,11 @@ while true; do
     sleep 3
 done &
 
-# 2. Iniciar Bot 2: ElCiro TV Bot (@Elciro_bot / @elcirotv_bot) en segundo plano
-# Si el usuario configura ELCIRO_BOT_TOKEN usará ese token; por defecto usa el token de @Elciro_bot
-ELCIRO_TOKEN="${ELCIRO_BOT_TOKEN:-8988332685:AAF-6ulB_iNjIl5QeGxGQx8ehiZjMNeNQfE}"
+# 2. Iniciar Bot 2: El Ciro TV Bot (@Elcirotv_bot) en segundo plano
+ELCIRO_TOKEN="${ELCIRO_BOT_TOKEN:-8626036800:AAEqCZ-bEXrRCNL2E30gLRvJuCP1piDJwPQ}"
 if [ "$ELCIRO_TOKEN" != "$BOT1_TOKEN" ]; then
     while true; do
-        echo "Iniciando Bot ElCiro TV (Elciro_bot)..."
+        echo "Iniciando Bot ElCiro TV (Elcirotv_bot)..."
         TELEGRAM_BOT_TOKEN="$ELCIRO_TOKEN" STREAM_CONFIG_FILE="stream_config_elciro.json" python -u bot_stream_multicanal.py
         echo "Bot ElCiro TV termino inesperadamente. Reiniciando en 3s..."
         sleep 3
