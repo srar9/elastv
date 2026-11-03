@@ -1180,11 +1180,6 @@ def restore_streams_from_environment():
 
 def main():
     global BOT_USERNAME
-    bot_enabled = os.environ.get("BOT_ENABLED", "true").strip().lower()
-    if bot_enabled in ("false", "0", "no", "off"):
-        print("Modo standby: BOT_ENABLED está configurado en false. El bot no consultará Telegram.")
-        while True:
-            time.sleep(3600)
     print("=" * 65)
     print("🤖 BOT DE TRANSMISIÓN DEPORTIVA (ElCiro - FLUIDEZ TOTAL)")
     print("=" * 65)
