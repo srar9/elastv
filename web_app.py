@@ -815,6 +815,21 @@ def source_status(slug, status, detail):
         app.logger.warning("No se pudo registrar el estado de la señal")
 
 
+@app.route("/api/playback/<slug>")
+def playback_session(slug):
+    """Pin one signed playlist to this viewer instead of rotating resolver caches."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}", slug):
+        return jsonify({"error": "Canal no válido."}), 400
+    if request.args.get("refresh") == "1":
+        STREAM_RESOLVER_CACHE.pop(slug, None)
+    data = resolve_tarjetarojatv_stream(slug) or {}
+    if not data.get("stream_url"):
+        return jsonify({"error": "La señal no está disponible."}), 503
+    response = jsonify({"url": signed_target(slug, data["stream_url"], data.get("iframe_url", ""), True)})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/stream/live/<slug>/master.m3u8")
 def hls_proxy_master(slug):
     data = resolve_tarjetarojatv_stream(slug) or {}
