@@ -929,7 +929,7 @@ def hls_proxy_segment(slug):
         source_status(slug, "ok", "El origen de la señal está entregando datos.")
         response = Response(media.body, content_type=media.content_type)
         response.headers["Cache-Control"] = "private, max-age=30"
-        response.headers["X-Video-Delivery"] = "prepared-v3"
+        response.headers["X-Video-Delivery"] = "prepared-v4"
         return response
     headers = upstream_headers(ref)
     if request.headers.get("Range"):

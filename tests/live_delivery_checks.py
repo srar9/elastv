@@ -70,7 +70,7 @@ class DeliveryChecks(unittest.TestCase):
         with patch.object(web_app,'MEDIA_CACHE',cache),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',return_value=Media(b'full-file','video/mp2t')) as load:
             for _ in range(2):
                 response=client.get(path);self.assertEqual(response.status_code,200);self.assertEqual(response.data,b'full-file')
-                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v3')
+                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v4')
             self.assertEqual(load.call_count,1)
             self.assertEqual(client.get(path.replace('espn/','espn2/')).status_code,403)
             self.assertEqual(load.call_count,1)
