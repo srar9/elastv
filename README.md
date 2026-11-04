@@ -24,8 +24,9 @@ automáticamente. Al elegir Partidos del día se muestra la cartelera ordenada p
 en ese mismo mensaje, sin etiquetas de zona horaria. El enlace al canal principal
 también aparece en los listados y en el pie de la mini app; `/canal` ofrece acceso directo.
 El menú fijo de Telegram también abre la mini app, y `/app` ofrece acceso directo.
-La mini app muestra la agenda completa; en el chat cada listado muestra cinco resultados
+La mini app muestra la agenda completa; en el chat cada listado muestra seis resultados
 por página. Las estadísticas privadas del dueño siguen accesibles desde el menú.
+Cada partido muestra su hora, equipos y competición, y un único botón «Ver partido».
 Anterior, Siguiente,
 Menú y Actualizar editan ese mensaje, sin enviar nuevas páginas al chat. Las búsquedas
 combinan partidos y canales en un único listado. Las estadísticas del dueño también
@@ -58,6 +59,9 @@ navegador cuentan como un visitante por partido. Las entradas se registran por a
 del reproductor y no por cada heartbeat.
 
 Las estadísticas se guardan en SQLite, compartido entre el bot y los procesos web.
+El panel y `/estadisticas` también incluyen el estado de los orígenes observados en los
+últimos 15 minutos, sus incidentes y diagnósticos sin URLs ni credenciales. Una respuesta
+del origen no confirma que todos los dispositivos estén reproduciendo el video.
 Para conservarlas entre despliegues monta un volumen y configura, por ejemplo,
 `AUDIENCE_DB_PATH=/data/audience.db`. Sin volumen el historial puede perderse al
 reemplazar el contenedor. Ejecuta una sola instancia del servicio por token.
@@ -68,8 +72,14 @@ listas anidadas, claves HLS, mapas fMP4 y solicitudes Range; sus enlaces secunda
 están firmados. La reproducción intenta reconectar con espera progresiva. No elimina
 anuncios incluidos en el video de origen ni garantiza disponibilidad o fluidez cuando
 la señal o la red falla. Las alternativas corresponden a las señales de cada evento.
+Si una señal no está disponible o falla tras reintentos limitados, el reproductor busca
+otra señal publicada para ese mismo partido. No cambia a canales ajenos ni repite
+indefinidamente las opciones fallidas. Las pausas y las restricciones de reproducción
+automática no disparan ese cambio. Reconectar solicita una resolución nueva del canal
+seleccionado. El selector manual, pantalla completa y Volver al bot permanecen disponibles.
 
 Pruebas del bot público: `python -m unittest discover -s tests -p public_checks.py -v`.
+Pruebas de recuperación del cliente: `node tests/player_checks.js`.
 
 En PC:
 

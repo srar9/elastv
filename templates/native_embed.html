@@ -1,37 +1,7 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ channel_name }} · En vivo</title><script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
-<style>html,body{margin:0;height:100%;background:#000;color:white;font-family:system-ui}video{width:100%;height:100%;object-fit:contain;filter:none;transform:none}#notice{position:absolute;bottom:65px;left:12px;right:12px;background:#121214e8;padding:12px;border-radius:12px;text-align:center}button{padding:10px 16px;border:0;border-radius:8px;background:#24a1de;color:white}</style></head><body>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000;color:white;font-family:system-ui}video{display:block;width:100%;height:100%;object-fit:contain;filter:none;transform:none}#notice{position:absolute;bottom:65px;left:12px;right:12px;background:#121214e8;padding:12px;border-radius:12px;text-align:center}button{padding:10px 16px;border:0;border-radius:8px;background:#24a1de;color:white}</style></head><body>
 <video id="video" controls playsinline webkit-playsinline autoplay></video><div id="notice" hidden><p id="message"></p><button id="retry">Reintentar</button></div>
-<script>
-const video = document.getElementById('video'), source = {{ stream_url|tojson }};
-let hls, retryTimer, retries=0, lastPosition=-1, lastAdvance=Date.now();
-function notice(message){document.getElementById('message').textContent=message;document.getElementById('notice').hidden=false;}
-function signal(playing){parent.postMessage({type:'elciro-playback',playing},location.origin);}
-function play(){video.play().catch(()=>{video.muted=true;video.play().catch(()=>notice('Toca reproducir para iniciar el video.'));});}
-function reconnect(){
- signal(false);if(retryTimer)return;
- if(++retries>6){notice('La señal no responde. Reintenta o elige otra señal del partido.');return;}
- notice('Reconectando la señal…');retryTimer=setTimeout(()=>{retryTimer=null;start();},Math.min(15000,1000*2**(retries-1)));
-}
-function start(){
- if(hls){hls.destroy();hls=null;}lastAdvance=Date.now();lastPosition=-1;
- if(!source){notice('Señal no disponible. Selecciona otra opción del partido.');return;}
- if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=source;video.load();play();}
- else if(window.Hls&&Hls.isSupported()){
-  hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:20});
-  hls.attachMedia(video);hls.on(Hls.Events.MEDIA_ATTACHED,()=>hls.loadSource(source));hls.on(Hls.Events.MANIFEST_PARSED,play);
-  hls.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal)reconnect();});
- }else notice('Este dispositivo no admite la reproducción de esta señal.');
-}
-video.addEventListener('playing',()=>{document.getElementById('notice').hidden=true;signal(true);});
-for(const event of ['pause','waiting','ended','error','emptied'])video.addEventListener(event,()=>signal(false));
-video.addEventListener('error',reconnect);video.addEventListener('loadedmetadata',play);
-video.addEventListener('timeupdate',()=>{if(video.currentTime!==lastPosition){lastPosition=video.currentTime;lastAdvance=Date.now();}});
-const monitor=setInterval(()=>{
- const advancing=Date.now()-lastAdvance<5000;signal(!video.paused&&!video.ended&&video.readyState>=3&&advancing);
- if(advancing&&video.currentTime>30)retries=0;
- if(!video.paused&&source&&Date.now()-lastAdvance>20000)reconnect();
-},3000);
-document.getElementById('retry').onclick=()=>{clearTimeout(retryTimer);retryTimer=null;retries=0;start();};
-window.addEventListener('pagehide',()=>{signal(false);clearInterval(monitor);clearTimeout(retryTimer);if(hls)hls.destroy();});start();
-</script></body></html>
+<script type="application/json" id="nativeConfig">{{ {"source":stream_url,"slug":slug}|tojson }}</script>
+<script src="{{ url_for('static', filename='native-player.js', v='1') }}"></script>
+</body></html>

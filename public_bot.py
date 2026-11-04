@@ -52,16 +52,17 @@ def send(chat_id, text, rows=None, keyboard=None, remove_keyboard=False):
     return api("sendMessage", **payload)
 
 
-def event_buttons(event, private):
+def event_buttons(event, private, number=None):
     channels = event.get("channels", [])
     if not channels:
         return []
     params = urlencode(dict(m=event["match_slug"], title=event["match"], c=event["competition"], mode="watch"))
-    label = "▶ " + event["time"] + " · " + event["match"]
+    prefix = f"▶ Ver partido {number}" if number is not None else "▶ Ver partido"
+    label = prefix + " · " + event["match"]
     return [[button(label, "/ver/" + quote(channels[0]["slug"], safe="") + "?" + params, private)]]
 
 
-PAGE_SIZE = 5
+PAGE_SIZE = 6
 VIEWS = OrderedDict()
 VIEW_LOCK = threading.Lock()
 VIEW_TTL = 1800
@@ -139,10 +140,12 @@ def render_page(token, view, page):
         text += "\n\nNo hay resultados. Prueba otra búsqueda o vuelve al menú."
     app_path = "/canales" if view["kind"] == "channels" else "/"
     rows = []
-    for item in selected:
+    for number, item in enumerate(selected, start=page * PAGE_SIZE + 1):
         kind, data = item["kind"], item["data"]
         if kind == "event":
-            buttons = event_buttons(data, view["private"])
+            text += (f"\n\n<b>{number}. {html.escape(data['time'])} · {html.escape(data['match'][:140])}</b>\n"
+                     f"{html.escape(data.get('competition', 'Deportes')[:90])}")
+            buttons = event_buttons(data, view["private"], number)
             if buttons:
                 rows.extend(buttons)
             else:
@@ -152,6 +155,10 @@ def render_page(token, view, page):
         elif kind == "stats":
             text += (f"\n\n<b>{html.escape(data['title'][:120])}</b>\n"
                      f"Viendo: {data['watching']} · Entradas: {data['entries']} · Visitantes: {data['visitors']}")
+        elif kind == "signal":
+            state = {"failed": "Con fallos", "ok": "Responde", "connecting": "Conectando"}.get(data["status"], "Sin datos")
+            text += (f"\n\n<b>{html.escape(data['name'])}</b> · {state}\n"
+                     f"{html.escape(data['detail'])}\nIncidentes: {data['failures']}")
     if pages > 1:
         nav = []
         if page > 0:
@@ -161,10 +168,6 @@ def render_page(token, view, page):
             nav.append(action("Siguiente ›", f"page:{token}:{page + 1}"))
         rows.append(nav)
     refresh_label = "Otra búsqueda" if view["kind"] == "search" else "Actualizar"
-    if view["kind"] == "events":
-        rows.append([action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")])
-        if view["private"] and view["user_id"] == OWNER_ID:
-            rows.append([action("📊 Estadísticas", "menu:stats")])
     if view["kind"] != "stats":
         rows.append([join_channel_button()])
         rows.append([button("📱 Abrir mini app", app_path, view["private"])])
@@ -214,8 +217,11 @@ def show_stats(chat_id, user_id, private, message_id=None):
     heading = (f"📊 <b>Mis estadísticas</b>\n\nViendo ahora: {data['watching']}\n"
                f"Usuarios del bot: {data['bot_users']}\nEntradas al reproductor: {data['player_entries']}\n"
                f"Visitantes: {data['player_visitors']}\nEntradas a la Mini App: {data['app_entries']}\nInteracciones: {data['bot_entries']}\n"
+               f"Señales con fallos recientes: {data.get('failing_signals', 0)}\n"
                "Actividad estimada en los últimos 45 segundos.")
-    return new_view(chat_id, user_id, private, "stats", [dict(kind="stats", data=r) for r in data["matches"]],
+    items = [dict(kind="signal", data=r) for r in data.get("signals", []) if r["status"] == "failed"]
+    items += [dict(kind="stats", data=r) for r in data["matches"]]
+    return new_view(chat_id, user_id, private, "stats", items,
                     heading, "menu:stats", message_id)
 
 

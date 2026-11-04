@@ -4,6 +4,7 @@
 <section class="intro compact"><p class="eyebrow">Solo para ti.</p><h1>Tu audiencia.</h1><p id="statsStatus" role="status">Verificando acceso…</p></section>
 <div id="statsSummary" class="stats-grid"></div>
 <div class="table-wrap" id="statsTable" hidden><table><thead><tr><th>Partido o canal</th><th>Viendo</th><th>Entradas</th><th>Visitantes</th></tr></thead><tbody id="statsRows"></tbody></table></div>
+<section id="signalsSection" hidden style="margin-top:32px"><div class="section-heading"><h2>Estado de las señales</h2></div><div class="table-wrap"><table><thead><tr><th>Señal</th><th>Estado del origen</th><th>Incidentes</th><th>Detalle</th></tr></thead><tbody id="signalRows"></tbody></table></div><p class="schedule-note">Actividad observada en el servidor durante los últimos 15 minutos. Una respuesta del origen no confirma la reproducción en todos los dispositivos.</p></section>
 {% endblock %}
 {% block scripts %}<script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,12 +15,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if(!response.ok) { document.getElementById('statsStatus').textContent='Abre esta sección desde tu cuenta autorizada en Telegram.'; clearInterval(timer); return; }
         const data = await response.json(); document.getElementById('statsStatus').textContent='Una mirada a quienes comparten el deporte contigo.';
         const summary=document.getElementById('statsSummary'); summary.replaceChildren();
-        for(const [label,value] of [['Reproduciendo ahora',data.watching],['Usuarios del bot',data.bot_users],['Entradas a la Mini App',data.app_entries],['Entradas al reproductor',data.player_entries],['Visitantes del reproductor',data.player_visitors],['Interacciones del bot',data.bot_entries]]) {
+        for(const [label,value] of [['Reproduciendo ahora',data.watching],['Usuarios del bot',data.bot_users],['Entradas a la Mini App',data.app_entries],['Entradas al reproductor',data.player_entries],['Visitantes del reproductor',data.player_visitors],['Señales con fallos',data.failing_signals||0]]) {
             const card=document.createElement('div');card.className='stat-card';const name=document.createElement('p');name.className='stat-label';name.textContent=label;const count=document.createElement('p');count.className='stat-value';count.textContent=Number(value).toLocaleString('es');card.append(name,count);summary.append(card);
         }
         const rows=document.getElementById('statsRows'); rows.replaceChildren();
         for(const match of data.matches){const row=document.createElement('tr');for(const value of [match.title,match.watching,match.entries,match.visitors]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}rows.append(row);}
         document.getElementById('statsTable').hidden=false;
+        const signalRows=document.getElementById('signalRows'); signalRows.replaceChildren();
+        for(const signal of data.signals||[]) { const row=document.createElement('tr');
+            const state={failed:'Con fallos',ok:'Responde',connecting:'Conectando'}[signal.status]||'Sin datos';
+            for(const value of [signal.name,state,signal.failures,signal.detail]) {const cell=document.createElement('td');cell.textContent=value;row.append(cell);} signalRows.append(row);
+        }
+        document.getElementById('signalsSection').hidden=!(data.signals||[]).length;
         if(!document.getElementById('statsNote')){const note=document.createElement('p');note.id='statsNote';note.className='schedule-note';note.textContent='Actividad estimada del video en los últimos 45 segundos. Visitantes por navegador. Actualización cada 15 segundos.';document.getElementById('statsTable').after(note);}
     }
     refresh().catch(()=>document.getElementById('statsStatus').textContent='No se pudo conectar. Vuelve a intentar en un momento.'); timer=setInterval(()=>refresh().catch(()=>{}),15000);

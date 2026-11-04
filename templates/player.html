@@ -4,38 +4,11 @@
 {% if request.args.get('mode') != 'watch' %}<a href="/" class="back-link">‹ Todos los partidos</a>{% endif %}
 <div class="player-heading"><p>{{ competition or 'Deportes en directo' }}</p><h1>{{ match_title or channel.name }}</h1></div>
 <div class="player-frame" id="playerWrapper"><iframe id="liveFrame" title="Reproductor de {{ match_title or channel.name }}" src="{{ clean_embed_url }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe></div>
-<div class="player-controls"><label class="signal-control">Señal<select id="signalSelect" class="select-control" aria-label="Elegir señal del partido">{% for ch in event_channels %}<option value="{{ url_for('player_view', slug=ch.slug, m=match_slug, title=match_title, c=competition, mode=request.args.get('mode', '')) }}" {% if ch.slug == channel.slug %}selected{% endif %}>{{ ch.name }}</option>{% endfor %}</select></label><div class="player-actions">{% if request.args.get('mode') == 'watch' %}<a class="text-link" id="backToBot" href="https://t.me/Elcirotv_bot">Volver al bot</a>{% endif %}<button type="button" id="reconnect">Reconectar</button><button type="button" id="fullscreen">Pantalla completa</button></div></div>
+<div class="player-controls"><label class="signal-control">Señal<select id="signalSelect" class="select-control" aria-label="Elegir señal del partido">{% for ch in event_channels %}<option value="{{ url_for('player_view', slug=ch.slug, m=match_slug, title=match_title, c=competition, mode=request.args.get('mode', '')) }}" {% if ch.slug == request.view_args.get('slug', channel.slug).strip().lower() %}selected{% endif %}>{{ ch.name }}</option>{% endfor %}</select></label><div class="player-actions">{% if request.args.get('mode') == 'watch' %}<a class="text-link" id="backToBot" href="https://t.me/Elcirotv_bot">Volver al bot</a>{% endif %}<button type="button" id="reconnect">Reconectar</button><button type="button" id="fullscreen">Pantalla completa</button></div></div>
+<p id="playerStatus" class="player-note" role="status" aria-live="polite" hidden></p>
 <p class="player-note">Si la señal se detiene, puedes reconectar{% if event_channels|length > 1 %} o elegir otra opción del mismo partido{% endif %}.</p>
 {% endblock %}
-{% block scripts %}<script>
-document.addEventListener('DOMContentLoaded', () => {
-    const frame = document.getElementById('liveFrame'), wrapper = document.getElementById('playerWrapper');
-    const match = {{ match_slug|tojson }}, title = {{ match_title|tojson }};
-    const session = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now() + Math.random().toString(36).slice(2);
-    let playing = false, lastReport = 0;
-    function presence(leaving = false) { fetch('/api/audience',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({session_id:session,match_id:match,title,playing:!leaving && playing && Date.now()-lastReport<6000})}).catch(() => {}); }
-    window.addEventListener('message', event => { if(event.origin !== location.origin || event.source !== frame.contentWindow || event.data?.type !== 'elciro-playback') return;
-        const changed = playing !== (event.data.playing === true); playing = event.data.playing === true; lastReport = Date.now(); if(changed) presence(); });
-    presence(); const timer = setInterval(presence,10000);
-    window.addEventListener('pagehide', () => {clearInterval(timer);presence(true);});
-    document.getElementById('signalSelect').addEventListener('change', event => location.assign(event.target.value));
-    {% if request.args.get('mode') == 'watch' %}
-    fetch('/api/partidos').then(response => response.ok ? response.json() : null).then(data => {
-        const event = data?.events?.find(event => event.match_slug === match);
-        if(!event) return;
-        const select = document.getElementById('signalSelect');
-        const known = new Set([...select.options].map(option => new URL(option.value, location.origin).pathname));
-        for(const channel of event.channels || []) {
-            const path = '/ver/' + encodeURIComponent(channel.slug); if(known.has(path)) continue;
-            const url = new URL(path, location.origin); url.search = new URLSearchParams({m:match,title,c:{{ competition|tojson }},mode:'watch'});
-            const option = document.createElement('option'); option.value=url.href; option.textContent=channel.name; select.append(option); known.add(path);
-        }
-    }).catch(() => {});
-    {% endif %}
-    document.getElementById('backToBot')?.addEventListener('click', event => { if(window.Telegram?.WebApp?.initData) {event.preventDefault();window.Telegram.WebApp.close();} });
-    document.getElementById('reconnect').addEventListener('click', () => {playing=false; presence(); frame.src={{ clean_embed_url|tojson }};});
-    document.getElementById('fullscreen').addEventListener('click', async () => {
-        try { if(document.fullscreenElement) await document.exitFullscreen(); else if(wrapper.requestFullscreen) await wrapper.requestFullscreen(); else if(frame.webkitRequestFullscreen) frame.webkitRequestFullscreen(); else window.Telegram?.WebApp?.requestFullscreen?.(); } catch(_) {}
-    });
-});
-</script>{% endblock %}
+{% block scripts %}
+<script type="application/json" id="playerConfig">{{ {"match":match_slug,"title":match_title,"channel":request.view_args.get('slug',channel.slug).strip().lower(),"competition":competition,"mode":request.args.get('mode','')}|tojson }}</script>
+<script src="{{ url_for('static', filename='player.js', v='1') }}"></script>
+{% endblock %}

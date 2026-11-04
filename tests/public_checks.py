@@ -195,12 +195,12 @@ class PublicChecks(unittest.TestCase):
         with patch.object(public_bot,'catalog_channels',return_value=channels),patch.object(public_bot,'summary',return_value=data),patch.object(public_bot,'send') as send:
             public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/canales'))
             send.assert_called_once()
-            self.assertEqual(sum('/ver/' in item.get('web_app',{}).get('url','') for row in send.call_args.args[2] for item in row),5)
+            self.assertEqual(sum('/ver/' in item.get('web_app',{}).get('url','') for row in send.call_args.args[2] for item in row),6)
             send.reset_mock()
             public_bot.handle_message(dict(chat=dict(id=audience.OWNER_ID,type='private'),**{'from':dict(id=audience.OWNER_ID)},text='/estadisticas'))
             send.assert_called_once()
-            self.assertIn('Match 4',send.call_args.args[1])
-            self.assertNotIn('Match 5',send.call_args.args[1])
+            self.assertIn('Match 5',send.call_args.args[1])
+            self.assertNotIn('Match 6',send.call_args.args[1])
 
     def test_telegram_menu_keeps_miniapp_available(self):
         with patch.object(public_bot,'api',return_value={'username':'Elcirotv_bot'}) as api:
@@ -267,7 +267,7 @@ class PublicChecks(unittest.TestCase):
             result=self.client.get('/ver/espn?m=a-vs-b&title=A+vs+B&mode=watch')
             self.assertEqual(result.status_code,200)
             self.assertIn(b'id="liveFrame"',result.data)
-            self.assertIn(b"fetch('/api/partidos')",result.data)
+            self.assertIn(b'player.js',result.data)
             agenda.assert_not_called()
             channels.assert_not_called()
 
@@ -289,6 +289,74 @@ class PublicChecks(unittest.TestCase):
             self.assertNotIn(b'ads.example', result.data)
             self.assertNotIn(b'P2PEngine', result.data)
             self.assertIn(b'<video', result.data)
+
+    def test_game_pages_show_six_games_with_time_competition_and_direct_play_buttons(self):
+        events=[dict(match=f'Home {i} vs Away',match_slug=f'game-{i}',competition='Liga de prueba',time=f'{10+i:02d}:00',channels=[dict(slug='espn',name='ESPN')]) for i in range(9)]
+        with patch.object(public_bot.schedule,'get',return_value=events),patch.object(public_bot,'send') as send:
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/partidos'))
+            send.assert_called_once()
+            text,rows=send.call_args.args[1:3]
+            self.assertIn('10:00',text)
+            self.assertIn('Liga de prueba',text)
+            self.assertIn('Home 5 vs Away',text)
+            self.assertNotIn('Home 6 vs Away',text)
+            videos=[item for row in rows for item in row if '/ver/' in item.get('web_app',{}).get('url','')]
+            self.assertEqual(len(videos),6)
+            self.assertTrue(all('Ver partido' in item['text'] for item in videos))
+
+    def test_source_failure_diagnostics_are_deduplicated_and_recover(self):
+        audience.signal_event('espn','failed','No responde','ESPN')
+        audience.signal_event('espn','failed','No responde','ESPN')
+        data=audience.summary()
+        self.assertEqual(data['failing_signals'],1)
+        self.assertEqual(data['signals'][0]['failures'],1)
+        audience.signal_event('espn','ok','Entregando datos','ESPN')
+        self.assertEqual(audience.summary()['failing_signals'],0)
+        audience.signal_event('espn','failed','Se interrumpió','ESPN')
+        self.assertEqual(audience.summary()['signals'][0]['failures'],2)
+
+    def test_proxy_reports_missing_source_but_not_invalid_unsigned_requests(self):
+        with patch.object(web_app,'resolve_tarjetarojatv_stream',return_value={}):
+            self.assertEqual(self.client.get('/stream/live/espn/master.m3u8').status_code,503)
+        self.assertEqual(audience.summary()['failing_signals'],1)
+        self.assertEqual(self.client.get('/stream/live/espn2/segment.ts?target=http://127.0.0.1').status_code,403)
+        self.assertEqual(len(audience.summary()['signals']),1)
+
+    def test_proxy_success_means_bytes_received_not_just_http_headers(self):
+        from unittest.mock import Mock
+        audience.signal_event('espn','failed','Caída','ESPN')
+        upstream=Mock(status_code=200,headers={'Content-Type':'video/mp2t'})
+        upstream.iter_content.return_value=[b'video' * 100]
+        path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
+        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
+            response=self.client.get(path)
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.data,b'video'*100)
+        self.assertEqual(audience.summary()['failing_signals'],0)
+        upstream.close.assert_called()
+
+    def test_proxy_rejects_provider_html_instead_of_executing_it_on_our_origin(self):
+        from unittest.mock import Mock
+        upstream=Mock(status_code=200,headers={'Content-Type':'text/html; charset=utf-8'})
+        path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
+        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
+            result=self.client.get(path)
+            self.assertEqual(result.status_code,502)
+            upstream.iter_content.assert_not_called()
+        self.assertEqual(audience.summary()['failing_signals'],1)
+
+    def test_player_keeps_the_real_channel_id_for_aliases(self):
+        import re
+        with patch.object(web_app.schedule,'day',None):
+            result=self.client.get('/ver/espn1?mode=watch')
+            config=json.loads(re.search(r'id="playerConfig">(.*?)</script>',result.get_data(as_text=True),re.S)[1])
+            self.assertEqual(config['channel'],'espn1')
+
+    def test_reconnect_invalidates_a_cached_failed_resolution(self):
+        web_app.STREAM_RESOLVER_CACHE['espn']={'data':{},'timestamp':time.time()}
+        with patch.object(web_app,'resolve_tarjetarojatv_stream',return_value={}):
+            self.client.get('/embed/espn?refresh=1')
+        self.assertNotIn('espn',web_app.STREAM_RESOLVER_CACHE)
 
 
 if __name__ == '__main__':

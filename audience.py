@@ -26,6 +26,9 @@ def initialize():
                 opened REAL, last_seen REAL, playing INTEGER DEFAULT 0);
             CREATE INDEX IF NOT EXISTS visits_active ON visits(last_seen, playing);
             CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS signal_health (
+                slug TEXT PRIMARY KEY, name TEXT, status TEXT, detail TEXT,
+                failures INTEGER DEFAULT 0, updated REAL);
         """)
         conn.execute("INSERT OR IGNORE INTO settings VALUES ('proxy_secret', ?)", (secrets.token_hex(32),))
 
@@ -53,6 +56,23 @@ def playback(session_id, client_id, match_id, title, playing):
                      (session_id, client_id, match_id, title, now, now, int(playing)))
 
 
+def signal_event(slug, status, detail="", name=None):
+    """Record only server-observed source status; never store upstream URLs or keys."""
+    if status not in ("failed", "ok", "connecting"):
+        raise ValueError("Invalid signal status")
+    now = time.time()
+    with closing(connect()) as conn, conn:
+        old = conn.execute("SELECT status, updated FROM signal_health WHERE slug=?", (slug,)).fetchone()
+        if old and old["status"] == status and now - old["updated"] < 30:
+            return
+        conn.execute("""INSERT INTO signal_health VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(slug) DO UPDATE SET name=excluded.name, status=excluded.status,
+            detail=excluded.detail, updated=excluded.updated,
+            failures=signal_health.failures + CASE WHEN excluded.status='failed'
+            AND signal_health.status!='failed' THEN 1 ELSE 0 END""",
+                     (slug, name or slug, status, detail[:160], int(status == "failed"), now))
+
+
 def summary():
     cutoff = time.time() - 45
     with closing(connect()) as conn:
@@ -65,8 +85,10 @@ def summary():
             COUNT(DISTINCT client_id) AS visitors,
             COUNT(DISTINCT CASE WHEN playing=1 AND last_seen>=? THEN client_id END) AS watching
             FROM visits WHERE match_id!='__app__' GROUP BY match_id ORDER BY watching DESC, entries DESC""", (cutoff,)).fetchall()
+        signals = conn.execute("SELECT * FROM signal_health WHERE updated>=? ORDER BY status='failed' DESC, updated DESC", (time.time()-900,)).fetchall()
     return dict(bot_users=users, bot_entries=entries, app_entries=app_entries, player_entries=visits[0],
-                player_visitors=visits[1], watching=active, matches=[dict(r) for r in matches])
+                player_visitors=visits[1], watching=active, matches=[dict(r) for r in matches],
+                signals=[dict(r) for r in signals], failing_signals=sum(r['status']=='failed' for r in signals))
 
 
 initialize()

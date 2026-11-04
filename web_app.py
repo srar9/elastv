@@ -796,11 +796,22 @@ def playlist_response(target, ref, slug):
         return response
 
 
+def source_status(slug, status, detail):
+    try:
+        name = TR_CHANNELS.get(slug, {}).get("name") or next(
+            (ch.get("name", slug) for event in schedule.events for ch in event.get("channels", []) if ch.get("slug") == slug), slug)
+        audience.signal_event(slug, status, detail, name)
+    except sqlite3.Error:
+        # Diagnostics must never prevent playback when the database is busy.
+        app.logger.warning("No se pudo registrar el estado de la señal")
+
+
 @app.route("/stream/live/<slug>/master.m3u8")
 def hls_proxy_master(slug):
     data = resolve_tarjetarojatv_stream(slug) or {}
     for attempt in range(2):
         if not data.get("stream_url"):
+            source_status(slug, "failed", "El origen no publicó una señal reproducible.")
             abort(503)
         try:
             return playlist_response(data["stream_url"], data.get("iframe_url", ""), slug)
@@ -808,6 +819,7 @@ def hls_proxy_master(slug):
             if not attempt:
                 STREAM_RESOLVER_CACHE.pop(slug, None)
                 data = resolve_tarjetarojatv_stream(slug) or {}
+    source_status(slug, "failed", "No se pudo descargar la lista de reproducción del origen.")
     abort(502)
 
 
@@ -817,6 +829,7 @@ def hls_proxy_sub(slug):
     try:
         return playlist_response(target, ref, slug)
     except (requests.RequestException, ValueError):
+        source_status(slug, "failed", "No se pudo descargar una lista de reproducción de la señal.")
         abort(502)
 
 
@@ -828,20 +841,38 @@ def hls_proxy_segment(slug):
         headers["Range"] = request.headers["Range"]
     try:
         upstream = HLS_SESSION.get(target, headers=headers, stream=True, timeout=(5, 15))
+        content_type = upstream.headers.get("Content-Type", "").lower()
+        if content_type.startswith(("text/html", "application/xhtml+xml", "application/json")):
+            source_status(slug, "failed", "El origen devolvió una página o un error en lugar de la señal.")
+            upstream.close()
+            abort(502)
         if upstream.status_code not in (200, 206):
+            source_status(slug, "failed", f"El origen respondió HTTP {upstream.status_code} al solicitar video.")
             upstream.close()
             abort(502)
     except requests.RequestException:
+        source_status(slug, "failed", "Se perdió la conexión con el origen de video.")
         abort(502)
     def generate():
+        received = False
         try:
-            yield from upstream.iter_content(chunk_size=65536)
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    if not received:
+                        source_status(slug, "ok", "El origen de la señal está entregando datos.")
+                        received = True
+                    yield chunk
+            if not received:
+                source_status(slug, "failed", "El origen entregó una respuesta de video vacía.")
+        except requests.RequestException:
+            source_status(slug, "failed", "La descarga de video se interrumpió.")
+            raise
         finally:
             upstream.close()
     response = Response(stream_with_context(generate()), status=upstream.status_code,
                         content_type=upstream.headers.get("Content-Type", "application/octet-stream"))
     for key in ("Content-Range", "Accept-Ranges", "Content-Length"):
-        if key in upstream.headers:
+        if key in upstream.headers and not (key == "Content-Length" and upstream.headers.get("Content-Encoding")):
             response.headers[key] = upstream.headers[key]
     response.headers["Cache-Control"] = "private, max-age=30"
     response.call_on_close(upstream.close)
@@ -851,8 +882,12 @@ def hls_proxy_segment(slug):
 @app.route("/embed/<slug>")
 def embed_view(slug):
     clean_slug = slug.strip().lower()
+    if request.args.get("refresh") == "1":
+        STREAM_RESOLVER_CACHE.pop(clean_slug, None)
     stream_data = resolve_tarjetarojatv_stream(clean_slug) or {}
     stream_url = stream_data.get("stream_url")
+    if not stream_url:
+        source_status(clean_slug, "failed", "El origen no publicó una señal reproducible.")
     response = app.make_response(render_template(
         "native_embed.html", stream_url=f"/stream/live/{clean_slug}/master.m3u8" if stream_url else "",
         channel_name=TR_CHANNELS.get(clean_slug, {}).get("name", clean_slug.upper()), slug=clean_slug))
