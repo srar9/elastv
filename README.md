@@ -12,6 +12,42 @@ Un aviso por una reclamación de derechos de autor indica una restricción de la
 
 ## Iniciar
 
+### Bot público: @Elcirotv_bot
+
+`public_bot.py` atiende al público con `PUBLIC_BOT_TOKEN` (o `ELCIRO_BOT_TOKEN`).
+El arranque mantiene el bot de transmisiones separado y ejecuta este bot público para
+el segundo token. No inicia FFmpeg ni permite cambiar claves o detener emisiones.
+`/partidos` muestra todos los eventos de las dos agendas compartidas, incluidos otros
+deportes y eventos sin señal. `/buscar` o un nombre escrito directamente busca equipos,
+torneos y canales. Los botones de cada señal abren `/ver/<canal>` en la Mini App.
+Configura `WEB_APP_BASE_URL` con la URL HTTPS pública; en Railway se utiliza el dominio
+público del servicio si no se proporciona esa variable. Los botones Web App funcionan
+en chats privados; en grupos se ofrecen enlaces web.
+
+Solo la cuenta `6467102546`, en su chat privado, recibe la opción `/estadisticas` y el
+botón del panel. El API del panel valida la firma HMAC de `initData` de Telegram y su
+antigüedad, además del ID. Los IDs enviados como parámetros no autorizan el acceso.
+El historial distingue usuarios e interacciones del bot, entradas a la Mini App,
+entradas y visitantes por partido, y espectadores con video avanzando durante los
+últimos 45 segundos. Es una estimación por navegador, no una prueba de atención humana.
+Pausas, errores y cierres dejan de renovar la presencia; varios reproductores del mismo
+navegador cuentan como un visitante por partido. Las entradas se registran por apertura
+del reproductor y no por cada heartbeat.
+
+Las estadísticas se guardan en SQLite, compartido entre el bot y los procesos web.
+Para conservarlas entre despliegues monta un volumen y configura, por ejemplo,
+`AUDIENCE_DB_PATH=/data/audience.db`. Sin volumen el historial puede perderse al
+reemplazar el contenedor. Ejecuta una sola instancia del servicio por token.
+
+El reproductor nativo usa Safari HLS o Hls.js, sin filtros, marca añadida, Clappr,
+P2P, anuncios propios ni HTML ejecutable de terceros. El proxy conserva Referer,
+listas anidadas, claves HLS, mapas fMP4 y solicitudes Range; sus enlaces secundarios
+están firmados. La reproducción intenta reconectar con espera progresiva. No elimina
+anuncios incluidos en el video de origen ni garantiza disponibilidad o fluidez cuando
+la señal o la red falla. Las alternativas corresponden a las señales de cada evento.
+
+Pruebas del bot público: `python -m unittest discover -s tests -p public_checks.py -v`.
+
 En PC:
 
 - `iniciar_stream.bat`: lanzador manual con monitor de salida y recuperación.

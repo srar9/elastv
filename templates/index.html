@@ -208,10 +208,7 @@
                         </a>
                         {% endfor %}
                     {% else %}
-                        <a href="/ver/espn?m={{ ev.match_slug }}&title={{ ev.match | urlencode }}&c={{ ev.competition | urlencode }}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 active:scale-95 border border-red-500/30 text-red-400 text-[11px] font-semibold transition">
-                            <i data-lucide="play" class="w-3 h-3 fill-current"></i>
-                            <span>Ver en Vivo</span>
-                        </a>
+                        <span class="text-xs text-white/50">Señal pendiente de publicación</span>
                     {% endif %}
                 </div>
 
@@ -266,6 +263,7 @@
 
 {% block scripts %}
 <script>
+    document.getElementById('matchSearch').value = new URLSearchParams(location.search).get('q') || '';
     let activeFilter = 'all'; // 'all' | 'live'
     let activeLeague = 'all';
 
@@ -368,6 +366,8 @@
             if (noRes) noRes.classList.toggle('hidden', visible > 0);
         }
     }
+
+    filterMatches();
 
     // Actualización de espectadores y estado EN VIVO en tiempo real por PARTIDO
     setInterval(async () => {

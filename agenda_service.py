@@ -88,11 +88,11 @@ def normalize_schedule(payload, now=None):
                 h_clean = hour[:8].strip() if hour else "12:00:00"
                 if len(h_clean.split(":")) == 2:
                     h_clean += ":00"
-                starts = datetime.fromisoformat(f"{date}T{h_clean}").replace(tzinfo=SOURCE_TZ)
+                starts = datetime.fromisoformat(f"{date}T{h_clean}").replace(tzinfo=SOURCE_TZ if strapi else timezone.utc)
             starts = starts.astimezone(LOCAL_TZ)
         except (ValueError, TypeError):
             continue  # An undated row cannot safely be advertised as today's event.
-        if date != today.isoformat() and starts.date() != today:
+        if starts.date() != today:
             continue
         competition, sep, match = title.partition(":")
         if not sep:
@@ -147,6 +147,7 @@ class ScheduleService:
             
             all_events = []
             failures = []
+            successes = 0
 
             # 1. Tarjeta Digital agenda
             try:
@@ -158,7 +159,9 @@ class ScheduleService:
                         "Referer": "https://tarjetadigital.club/"
                     }
                 )
+                r_td.raise_for_status()
                 if r_td.status_code == 200:
+                    successes += 1
                     td_events = normalize_schedule(r_td.json(), now)
                     all_events.extend(td_events)
             except Exception as exc:
@@ -167,7 +170,9 @@ class ScheduleService:
             # 2. Roja / WQXAG agenda
             try:
                 response = requests.get(AGENDA_URL, timeout=(5, 10), headers={"Accept": "application/json"})
+                response.raise_for_status()
                 if response.status_code == 200:
+                    successes += 1
                     roja_events = normalize_schedule(response.json(), now)
                     # Merge evitando duplicados pero combinando todas las señales de transmisión disponibles
                     events_by_slug = {e["match_slug"]: e for e in all_events}
@@ -191,7 +196,7 @@ class ScheduleService:
             except Exception as exc:
                 failures.append(type(exc).__name__)
 
-            if not all_events and failures:
+            if not all_events and failures and not successes:
                 if self.day == day and age < 1800:
                     self.stale = True
                     return copy.deepcopy(self.events)

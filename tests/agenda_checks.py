@@ -52,6 +52,7 @@ class AgendaChecks(unittest.TestCase):
     def test_today_cache_is_used_during_temporary_failure(self):
         service = agenda.ScheduleService()
         response = Mock()
+        response.status_code = 200
         response.json.return_value = {"data": [event()]}
         with patch.object(agenda.requests, "get", return_value=response):
             service.get(NOW)
@@ -63,6 +64,7 @@ class AgendaChecks(unittest.TestCase):
     def test_yesterday_cache_is_never_presented_as_today(self):
         service = agenda.ScheduleService()
         response = Mock()
+        response.status_code = 200
         response.json.return_value = {"data": [event()]}
         with patch.object(agenda.requests, "get", return_value=response):
             service.get(NOW)
@@ -73,11 +75,12 @@ class AgendaChecks(unittest.TestCase):
     def test_successful_empty_schedule_is_cached(self):
         service = agenda.ScheduleService()
         response = Mock()
+        response.status_code = 200
         response.json.return_value = {"data": []}
         with patch.object(agenda.requests, "get", return_value=response) as fetch:
             self.assertEqual(service.get(NOW), [])
             self.assertEqual(service.get(NOW), [])
-        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(fetch.call_count, 2)  # Two providers, one refresh.
 
     def test_all_events_are_rendered_in_valid_sized_pages_without_keys(self):
         rows = [event(title=f"Liga: Equipo {i:03d} vs Rival") for i in range(100)]
@@ -98,6 +101,11 @@ class AgendaChecks(unittest.TestCase):
 
 
 class CommandChecks(unittest.TestCase):
+    def setUp(self):
+        self.admin = patch.object(bot, "ADMIN_USER_IDS", ["6467102546"])
+        self.admin.start()
+        self.addCleanup(self.admin.stop)
+
     def message(self, text, admin=True):
         return {"chat": {"id": 1}, "from": {"id": bot.ADMIN_USER_IDS[0] if admin else "unauthorized"}, "text": text}
 
@@ -107,7 +115,7 @@ class CommandChecks(unittest.TestCase):
         self.assertEqual(catalog.normalize_command("/stop@OtherBot", "Elciro_bot"), "")
 
     def test_agenda_command_with_mention_routes_correctly(self):
-        with patch.object(bot, "send_msg") as send, patch.object(bot, "get_live_matches_agenda", return_value=["TODOS"]):
+        with patch.object(bot, "BOT_USERNAME", "Elciro_bot"), patch.object(bot, "send_msg") as send, patch.object(bot, "get_live_matches_agenda", return_value=["TODOS"]):
             bot.handle_message(self.message("///PARTIDOS@Elciro_bot"))
         self.assertEqual(send.call_args.args[1], "TODOS")
 
@@ -162,17 +170,17 @@ class CommandChecks(unittest.TestCase):
 class SharedSurfaceChecks(unittest.TestCase):
     def test_web_api_and_miniapp_keep_all_events(self):
         import web_app
-        import bot_miniapp
+        import public_bot
         rows = [event(title=f"Liga: Equipo {i:03d} vs Rival") for i in range(35)]
         events = agenda.normalize_schedule({"data": rows}, NOW)
         with patch.object(web_app, "fetch_tarjetarojatv_schedule", return_value=events):
             response = web_app.app.test_client().get("/api/partidos")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json["events"]), 35)
-        msg = {"chat": {"id": 1}, "from": {"id": "viewer"}, "text": "/partidos@MiniBot"}
-        with patch.object(bot_miniapp, "fetch_tarjetaroja_schedule", return_value=events), \
-                patch.object(bot_miniapp, "send_msg") as send:
-            bot_miniapp.handle_message(msg)
+        msg = {"chat": {"id": 1, "type": "private"}, "from": {"id": 123}, "text": "/partidos@MiniBot"}
+        with patch.object(public_bot.schedule, "get", return_value=events), \
+                patch.object(public_bot, "send") as send, patch.object(public_bot.time, "sleep"):
+            public_bot.handle_message(msg)
         text = "".join(call.args[1] for call in send.call_args_list)
         self.assertIn("Equipo 034", text)
         self.assertIn("35 eventos", text)

@@ -22,10 +22,11 @@ done &
 
 # 2. Iniciar Bot 2: El Ciro TV Bot (@Elcirotv_bot) en segundo plano
 ELCIRO_TOKEN="${ELCIRO_BOT_TOKEN:-8626036800:AAEqCZ-bEXrRCNL2E30gLRvJuCP1piDJwPQ}"
-if [ "$ELCIRO_TOKEN" != "$BOT1_TOKEN" ]; then
+export PUBLIC_BOT_TOKEN="${PUBLIC_BOT_TOKEN:-$ELCIRO_TOKEN}"
+if [ "$PUBLIC_BOT_TOKEN" != "$BOT1_TOKEN" ]; then
     while true; do
         echo "Iniciando Bot ElCiro TV (Elcirotv_bot)..."
-        TELEGRAM_BOT_TOKEN="$ELCIRO_TOKEN" STREAM_CONFIG_FILE="stream_config_elciro.json" python -u bot_stream_multicanal.py
+        ELCIRO_BOT_TOKEN="$ELCIRO_TOKEN" PUBLIC_BOT_TOKEN="${PUBLIC_BOT_TOKEN:-$ELCIRO_TOKEN}" python -u public_bot.py
         echo "Bot ElCiro TV termino inesperadamente. Reiniciando en 3s..."
         sleep 3
     done &

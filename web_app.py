@@ -10,6 +10,9 @@ import unicodedata
 import requests
 import urllib.parse
 import hashlib
+import hmac
+import secrets
+import audience
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from agenda_service import schedule, ScheduleUnavailable
@@ -19,6 +22,58 @@ from flask import Flask, render_template, request, jsonify, abort, Response, str
 from team_helper import parse_match_teams, get_team_short, get_team_badge, is_match_live
 
 app = Flask(__name__)
+
+
+def telegram_owner():
+    """Trust only Telegram's signed initData, never an ID supplied by the browser."""
+    from public_bot import TOKEN
+    raw = request.headers.get("X-Telegram-Init-Data", "")
+    try:
+        pairs = urllib.parse.parse_qsl(raw, strict_parsing=True)
+        data = dict(pairs)
+        if not TOKEN or len(data) != len(pairs):
+            return False
+        signature = data.pop("hash")
+        auth_date = int(data["auth_date"])
+        if not 0 <= time.time() - auth_date <= 86400:
+            return False
+        check = "\n".join(f"{key}={value}" for key, value in sorted(data.items()))
+        secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature) and json.loads(data["user"])["id"] == audience.OWNER_ID
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
+@app.route("/estadisticas")
+def statistics_page():
+    # The shell contains no data; every request for statistics is authenticated.
+    return render_template("statistics.html", active_page="stats")
+
+
+@app.route("/api/admin/statistics")
+def statistics_api():
+    if not telegram_owner():
+        abort(403)
+    response = jsonify(audience.summary())
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/api/audience", methods=["POST"])
+def audience_presence():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        abort(400)
+    session_id = data.get("session_id", "")
+    match_id = data.get("match_id", "")
+    if not isinstance(session_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{8,80}", session_id):
+        abort(400)
+    if not isinstance(match_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,200}", match_id):
+        abort(400)
+    title = str(data.get("title", match_id))[:200]
+    audience.playback(session_id, extract_client_id(), match_id, title, data.get("playing") is True)
+    return jsonify(ok=True)
 
 # ==============================================================================
 # CONFIGURACIÓN GENERAL Y HEADERS
@@ -129,6 +184,7 @@ for i in range(1, 16):
     TR_CHANNELS[f"disney-{i}"] = {"slug": slug_d, "name": name_d, "category": "disney"}
 
 CATEGORIES_META = {
+    "agenda": {"name": "Señales de los partidos de hoy", "icon": "calendar"},
     "espn": {"name": "ESPN Suite", "icon": "tv"},
     "fox": {"name": "Fox Sports", "icon": "trophy"},
     "dsports": {"name": "DIRECTV Sports", "icon": "radio"},
@@ -205,10 +261,9 @@ def extract_client_id():
     param_vid = request.args.get("vid")
     if param_vid and 4 < len(param_vid) < 64:
         return param_vid.strip()
-    forwarded = request.headers.get("X-Forwarded-For")
-    ip = forwarded.split(",")[0].strip() if forwarded else (request.remote_addr or "127.0.0.1")
-    ua = request.headers.get("User-Agent", "")[:40]
-    return "u_" + hashlib.md5(f"{ip}-{ua}".encode()).hexdigest()[:14]
+    if "elciro.visitor" not in request.environ:
+        request.environ["elciro.visitor"] = secrets.token_urlsafe(24)
+    return request.environ["elciro.visitor"]
 
 @app.after_request
 def ensure_viewer_cookie(response):
@@ -236,37 +291,18 @@ def record_match_viewer(match_id, client_id):
 
 def get_all_active_viewers_map():
     """Devuelve un diccionario { match_id: set(client_ids) } con todos los espectadores activos."""
-    cutoff = time.time() - 90
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT match_id, client_id FROM match_viewers WHERE last_seen >= ?", (cutoff,))
-            rows = cur.fetchall()
-            mapping = {}
-            for m_id, c_id in rows:
-                if m_id not in mapping:
-                    mapping[m_id] = set()
-                mapping[m_id].add(c_id)
-            return mapping
-    except Exception as e:
-        print("Error consultando mapa de espectadores activos:", e)
-        return {}
+    with closing(audience.connect()) as conn:
+        rows = conn.execute("SELECT match_id, client_id FROM visits WHERE playing=1 AND last_seen>=?", (time.time() - 45,)).fetchall()
+    mapping = {}
+    for row in rows:
+        mapping.setdefault(row["match_id"], set()).add(row["client_id"])
+    return mapping
+
 
 def calculate_event_viewers_from_map(viewers_map, match_slug, channels=None):
     """Calcula el número exacto de espectadores únicos para un evento considerando match_slug y canales."""
-    keys = set()
-    if match_slug:
-        keys.add(str(match_slug).strip().lower())
-    if channels:
-        for ch in channels:
-            slug = ch.get("slug") if isinstance(ch, dict) else str(ch)
-            if slug:
-                keys.add(slug.strip().lower().replace("_", "-"))
-    unique_clients = set()
-    for k in keys:
-        if k in viewers_map:
-            unique_clients.update(viewers_map[k])
-    return len(unique_clients)
+    return len(viewers_map.get(str(match_slug).strip().lower(), set()))
+
 
 def get_event_viewers_count(match_slug, channels=None):
     viewers_map = get_all_active_viewers_map()
@@ -446,6 +482,11 @@ def get_unique_channels():
                 "name": v["name"],
                 "category": v["category"]
             })
+    for event in fetch_tarjetarojatv_schedule():
+        for channel in event.get("channels", []):
+            if channel["slug"] not in seen:
+                seen.add(channel["slug"])
+                unique.append(dict(slug=channel["slug"], name=channel["name"], category="agenda"))
     return sorted(unique, key=lambda x: (x["category"], x["name"]))
 
 # ==============================================================================
@@ -513,7 +554,7 @@ def channels_view():
 
 @app.route("/ver/<slug>")
 def player_view(slug):
-    clean_slug = slug.strip().lower().replace("_", "-")
+    clean_slug = slug.strip().lower()
     channel_info = TR_CHANNELS.get(clean_slug)
     if not channel_info:
         channel_info = {
@@ -570,32 +611,10 @@ def player_view(slug):
     if not found_curr:
         event_channels.insert(0, {"name": channel_info.get("name", clean_slug.upper()), "slug": clean_slug})
 
-    # Si hay sólo 1 señal, ofrecer opciones de contingencia populares
-    if len(event_channels) < 2:
-        fallbacks = [
-            {"slug": "espn", "name": "ESPN 1 HD"},
-            {"slug": "espn2", "name": "ESPN 2 HD"},
-            {"slug": "foxsports", "name": "Fox Sports 1"},
-            {"slug": "tycsports", "name": "TyC Sports HD"}
-        ]
-        for fb in fallbacks:
-            if fb["slug"] != clean_slug and not any(c.get("slug") == fb["slug"] for c in event_channels):
-                event_channels.append(fb)
-            if len(event_channels) >= 3:
-                break
-
-    # Registrar heartbeat
-    client_id = extract_client_id()
-    record_match_viewer(match_slug, client_id)
-    record_match_viewer(clean_slug, client_id)
-
-    stream_data = resolve_tarjetarojatv_stream(clean_slug)
-    stream_url = stream_data.get("stream_url") if stream_data else None
-    raw_iframe = stream_data.get("iframe_url") if stream_data else f"https://la18hd.su/vivo/canal.php?stream={clean_slug}"
-    # Señal oficial directa de tarjetarojaonline.info (la18hd.su con Clappr + Swarmcloud P2P)
-    iframe_url = raw_iframe
+    # Resolve the native video once, inside the embedded player.
+    iframe_url = None
     clean_embed_url = f"/embed/{clean_slug}"
-    clean_stream_src = stream_url if stream_url else None
+    clean_stream_src = None
 
     # Canales recomendados para el menú inferior
     all_unique = get_unique_channels()
@@ -636,7 +655,7 @@ def player_view(slug):
 
 @app.route("/api/viewers/<slug>")
 def api_viewers(slug):
-    clean_slug = slug.strip().lower().replace("_", "-")
+    clean_slug = slug.strip().lower()
     req_match = request.args.get("m") or request.args.get("match")
 
     match_slug = ""
@@ -664,10 +683,6 @@ def api_viewers(slug):
 
     if not event_channels:
         event_channels = [{"slug": clean_slug}]
-
-    client_id = extract_client_id()
-    record_match_viewer(match_slug, client_id)
-    record_match_viewer(clean_slug, client_id)
 
     v_count = get_event_viewers_count(match_slug, event_channels)
     return jsonify({
@@ -707,215 +722,136 @@ _adapter = requests.adapters.HTTPAdapter(pool_connections=60, pool_maxsize=120, 
 HLS_SESSION.mount("https://", _adapter)
 HLS_SESSION.mount("http://", _adapter)
 
+def proxy_secret():
+    from public_bot import TOKEN
+    return (os.environ.get("HLS_PROXY_SECRET") or TOKEN or audience.proxy_key()).encode()
+
+
+def signed_target(slug, target, ref, playlist=False):
+    expires = str(int(time.time()) + 3600)
+    signature = hmac.new(proxy_secret(), f"{slug}\n{target}\n{ref}\n{expires}".encode(), hashlib.sha256).hexdigest()
+    route = "sub.m3u8" if playlist else "segment.ts"
+    return f"/stream/live/{slug}/{route}?" + urllib.parse.urlencode(dict(target=target, ref=ref, expires=expires, sig=signature))
+
+
+def verified_target(slug):
+    target, ref = request.args.get("target", ""), request.args.get("ref", "")
+    expires, signature = request.args.get("expires", ""), request.args.get("sig", "")
+    try:
+        if not int(time.time()) <= int(expires) <= time.time() + 3605:
+            abort(403)
+    except ValueError:
+        abort(403)
+    expected = hmac.new(proxy_secret(), f"{slug}\n{target}\n{ref}\n{expires}".encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        abort(403)
+    if urllib.parse.urlsplit(target).scheme not in ("https", "http"):
+        abort(400)
+    return target, ref
+
+
+def rewrite_playlist(text, base, slug, ref):
+    lines = []
+    variant = False
+    def uri(value, playlist=False):
+        target = urllib.parse.urljoin(base, value)
+        if urllib.parse.urlsplit(target).scheme not in ("http", "https"):
+            raise ValueError("Unsupported HLS URI")
+        return signed_target(slug, target, ref, playlist)
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            lines.append(uri(stripped, variant or ".m3u8" in urllib.parse.urlsplit(stripped).path))
+            variant = False
+        else:
+            playlist_tag = stripped.startswith(("#EXT-X-MEDIA:", "#EXT-X-I-FRAME-STREAM-INF:", "#EXT-X-RENDITION-REPORT:"))
+            lines.append(re.sub(r'URI="([^"\n]+)"', lambda m: 'URI="' + uri(m.group(1), playlist_tag) + '"', line))
+            if stripped.startswith("#EXT-X-STREAM-INF:"):
+                variant = True
+    return "\n".join(lines)
+
+
+def upstream_headers(ref):
+    headers = {"User-Agent": HEADERS_BASE["User-Agent"]}
+    if ref:
+        headers["Referer"] = ref
+        parsed = urllib.parse.urlsplit(ref)
+        headers["Origin"] = f"{parsed.scheme}://{parsed.netloc}"
+    return headers
+
+
+def playlist_response(target, ref, slug):
+    with HLS_SESSION.get(target, headers=upstream_headers(ref), timeout=(5, 12)) as upstream:
+        upstream.raise_for_status()
+        if not upstream.text.lstrip().startswith("#EXTM3U"):
+            raise ValueError("Invalid HLS playlist")
+        response = Response(rewrite_playlist(upstream.text, upstream.url, slug, ref), content_type="application/vnd.apple.mpegurl")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 @app.route("/stream/live/<slug>/master.m3u8")
 def hls_proxy_master(slug):
-    clean_slug = slug.strip().lower().replace("_", "-")
-    stream_data = resolve_tarjetarojatv_stream(clean_slug)
-    stream_url = stream_data.get("stream_url")
-    if not stream_url:
-        return abort(404)
+    data = resolve_tarjetarojatv_stream(slug) or {}
+    for attempt in range(2):
+        if not data.get("stream_url"):
+            abort(503)
+        try:
+            return playlist_response(data["stream_url"], data.get("iframe_url", ""), slug)
+        except (requests.RequestException, ValueError):
+            if not attempt:
+                STREAM_RESOLVER_CACHE.pop(slug, None)
+                data = resolve_tarjetarojatv_stream(slug) or {}
+    abort(502)
 
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://la18hd.su/"
-        }
-        r = HLS_SESSION.get(stream_url, headers=headers, timeout=8)
-        
-        # Si el token expiró, limpiar caché y reintentar con token fresco
-        if r.status_code != 200:
-            STREAM_RESOLVER_CACHE.pop(clean_slug, None)
-            stream_data = resolve_tarjetarojatv_stream(clean_slug)
-            stream_url = stream_data.get("stream_url")
-            if not stream_url:
-                return abort(r.status_code)
-            r = HLS_SESSION.get(stream_url, headers=headers, timeout=8)
-            if r.status_code != 200:
-                return abort(r.status_code)
-
-        base_url = stream_url.split("?")[0].rsplit("/", 1)[0]
-        lines = []
-        for line in r.text.splitlines():
-            l = line.strip()
-            if l and not l.startswith("#"):
-                sub_target = base_url + "/" + l if not l.startswith("http") else l
-                encoded = urllib.parse.quote_plus(sub_target)
-                if ".m3u8" in l:
-                    lines.append(f"/stream/live/{clean_slug}/sub.m3u8?target={encoded}")
-                else:
-                    lines.append(f"/stream/live/{clean_slug}/segment.ts?target={encoded}")
-            else:
-                lines.append(line)
-
-        resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
-    except Exception as e:
-        print(f"Error in master proxy for {clean_slug}:", e)
-        return abort(500)
 
 @app.route("/stream/live/<slug>/sub.m3u8")
 def hls_proxy_sub(slug):
-    clean_slug = slug.strip().lower().replace("_", "-")
-    target = request.args.get("target")
-    if not target:
-        return abort(400)
-
+    target, ref = verified_target(slug)
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://la18hd.su/"
-        }
-        r = HLS_SESSION.get(target, headers=headers, timeout=8)
-        if r.status_code != 200:
-            return abort(r.status_code)
+        return playlist_response(target, ref, slug)
+    except (requests.RequestException, ValueError):
+        abort(502)
 
-        base_url = target.split("?")[0].rsplit("/", 1)[0]
-        lines = []
-        for line in r.text.splitlines():
-            l = line.strip()
-            if l and not l.startswith("#"):
-                chunk_target = base_url + "/" + l if not l.startswith("http") else l
-                encoded = urllib.parse.quote_plus(chunk_target)
-                lines.append(f"/stream/live/{clean_slug}/segment.ts?target={encoded}")
-            else:
-                lines.append(line)
-
-        resp = Response("\n".join(lines), content_type="application/vnd.apple.mpegurl")
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
-    except Exception as e:
-        print(f"Error in sub proxy for {clean_slug}:", e)
-        return abort(500)
 
 @app.route("/stream/live/<slug>/segment.ts")
 def hls_proxy_segment(slug):
-    clean_slug = slug.strip().lower().replace("_", "-")
-    target = request.args.get("target")
-    if not target:
-        return abort(400)
-
+    target, ref = verified_target(slug)
+    headers = upstream_headers(ref)
+    if request.headers.get("Range"):
+        headers["Range"] = request.headers["Range"]
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://la18hd.su/"
-        }
-        r = HLS_SESSION.get(target, headers=headers, stream=True, timeout=12)
-        if r.status_code != 200:
-            return abort(r.status_code)
+        upstream = HLS_SESSION.get(target, headers=headers, stream=True, timeout=(5, 15))
+        if upstream.status_code not in (200, 206):
+            upstream.close()
+            abort(502)
+    except requests.RequestException:
+        abort(502)
+    def generate():
+        try:
+            yield from upstream.iter_content(chunk_size=65536)
+        finally:
+            upstream.close()
+    response = Response(stream_with_context(generate()), status=upstream.status_code,
+                        content_type=upstream.headers.get("Content-Type", "application/octet-stream"))
+    for key in ("Content-Range", "Accept-Ranges", "Content-Length"):
+        if key in upstream.headers:
+            response.headers[key] = upstream.headers[key]
+    response.headers["Cache-Control"] = "private, max-age=30"
+    response.call_on_close(upstream.close)
+    return response
 
-        def generate():
-            for chunk in r.iter_content(chunk_size=131072):
-                if chunk:
-                    yield chunk
-
-        resp = Response(stream_with_context(generate()), content_type="video/mp2t")
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        resp.headers["Cache-Control"] = "public, max-age=60"
-        return resp
-    except Exception as e:
-        print(f"Error in segment proxy for {clean_slug}:", e)
-        return abort(500)
 
 @app.route("/embed/<slug>")
 def embed_view(slug):
-    """
-    Reproductor purificado 100% nativo.
-    Si se dispone de stream_url directo (.m3u8), renderiza embed.html con Clappr y Hls.js
-    sin ningún script externo de publicidad, popups ni bloqueos de sandbox.
-    """
-    clean_slug = slug.strip().lower().replace("_", "-")
-    channel_name = TR_CHANNELS.get(clean_slug, {}).get("name", clean_slug.upper())
-
-    # 1. Intentar resolver la señal directa HLS
-    stream_data = resolve_tarjetarojatv_stream(clean_slug)
-    stream_url = stream_data.get("stream_url") if stream_data else None
-
-    # 2. Si no se obtuvo stream_url directo, intentar via tvf90 o roja
-    if not stream_url:
-        try:
-            from channel_source import resolve_tvf90, resolve_roja_source
-            tv_stream, _, _ = resolve_tvf90(clean_slug)
-            if tv_stream:
-                stream_url = tv_stream
-            else:
-                roja_stream, _, _ = resolve_roja_source(clean_slug)
-                if roja_stream:
-                    stream_url = roja_stream
-        except Exception as e:
-            print("Aviso resolviendo fallback en embed_view:", e)
-
-    if stream_url:
-        response = app.make_response(render_template(
-            "embed.html",
-            stream_url=stream_url,
-            channel_name=channel_name,
-            slug=clean_slug
-        ))
-        response.headers["Content-Type"] = "text/html; charset=utf-8"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        return response
-
-    iframe_url = stream_data.get("iframe_url") if stream_data else None
-    if not iframe_url:
-        response = app.make_response(render_template(
-            "embed.html",
-            stream_url="",
-            channel_name=channel_name,
-            slug=clean_slug
-        ))
-        return response, 404
-
-    try:
-        headers = dict(HEADERS_BASE)
-        headers["Referer"] = "https://tarjetarojaonline.info/"
-        r = requests.get(iframe_url, headers=headers, timeout=8)
-        if r.status_code != 200:
-            return "Error al cargar la señal de origen", 502
-
-        html_content = r.text
-
-        # Intentar extraer m3u8 del iframe si no se había detectado
-        m_m3u8 = re.search(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', html_content)
-        if m_m3u8:
-            return render_template(
-                "embed.html",
-                stream_url=m_m3u8.group(0),
-                channel_name=channel_name,
-                slug=clean_slug
-            )
-
-        # Desinfectar drásticamente cualquier script publicitario o de redirección
-        html_content = re.sub(r'<script\b[^>]*src=["\'][^"\']*(?:aclib|llvpn|luugy|adcash|popunder|onclick|track)[^"\']*["\'][^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:aclib|llvpn|11228974|11545073|11645073|11918478|dataset\.zone).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<script\b[^>]*>(?:(?!</script>).)*?(?:block\.html|nosandbox|hasAttribute).*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = html_content.replace('/block.html', '')
-
-        # Anulador definitivo de popups
-        anti_pop_script = """
-        <script>
-        (function() {
-            window.open = function() { console.warn('Bloqueado popup publicitario'); return null; };
-            window.alert = function() {};
-            window.confirm = function() { return false; };
-            window.prompt = function() { return null; };
-        })();
-        </script>
-        """
-        if "<head>" in html_content:
-            html_content = html_content.replace("<head>", f"<head>{anti_pop_script}")
-        else:
-            html_content = f"{anti_pop_script}{html_content}"
-
-        response = app.make_response(html_content)
-        response.headers["Content-Type"] = "text/html; charset=utf-8"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        return response
-    except Exception as e:
-        print(f"Error en embed_view para {clean_slug}:", e)
-        return "Error al procesar la señal limpia", 500
+    clean_slug = slug.strip().lower()
+    stream_data = resolve_tarjetarojatv_stream(clean_slug) or {}
+    stream_url = stream_data.get("stream_url")
+    response = app.make_response(render_template(
+        "native_embed.html", stream_url=f"/stream/live/{clean_slug}/master.m3u8" if stream_url else "",
+        channel_name=TR_CHANNELS.get(clean_slug, {}).get("name", clean_slug.upper()), slug=clean_slug))
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return response
 
 # ==============================================================================
 # API REST JSON

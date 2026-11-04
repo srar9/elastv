@@ -108,18 +108,18 @@
                 <button id="btnModeClean" onclick="setIframeSource('{{ clean_embed_url }}', 'clean')" class="px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition bg-white text-black shadow-sm">
                     <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i> 🛡️ Señal Principal HD
                 </button>
-                <button id="btnModeOfficial" onclick="setIframeSource('{{ clean_embed_url }}?alt=1', 'official')" class="px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> ⚡ Opción de Respaldo
+                <button id="btnModeOfficial" onclick="reloadPlayer()" class="px-3 py-1 rounded-lg text-xs font-medium text-white/70 hover:text-white flex items-center gap-1.5 transition">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Reconectar
                 </button>
             </div>
-            <span class="text-[10px] text-white/40 hidden sm:inline">100% Nativo & Sin Publicidad</span>
+            <span class="text-[10px] text-white/40 hidden sm:inline">Video original sin efectos</span>
         </div>
         {% endif %}
 
         <!-- INDICADOR DE PROTECCIÓN ACTIVA Y ESPECTADORES -->
         <div class="mt-2.5 px-1 flex items-center justify-between text-[11px] text-white/40">
             <span class="flex items-center gap-1.5 text-emerald-400/90 font-medium">
-                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Modo Directo Limpio (0 Publicidad)
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Reproductor sin anuncios añadidos
             </span>
             <span class="flex items-center gap-1 text-white/80 font-semibold bg-white/[0.06] border border-white/[0.08] px-2.5 py-0.5 rounded-full shadow-sm">
                 <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span>
@@ -133,25 +133,25 @@
             <button onclick="sendReaction('⚽', 'gol')" class="reaction-btn flex-1 py-1 px-1.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-white/[0.06] active:scale-90 transition group" title="Cantar Gol">
                 <span class="text-base group-hover:scale-125 transition-transform">⚽</span>
                 <span class="text-xs font-bold text-white/90">Gol</span>
-                <span id="count-gol" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">18</span>
+                <span id="count-gol" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">0</span>
             </button>
             <div class="w-px h-5 bg-white/[0.08]"></div>
             <button onclick="sendReaction('🔥', 'fuego')" class="reaction-btn flex-1 py-1 px-1.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-white/[0.06] active:scale-90 transition group" title="Partidazo">
                 <span class="text-base group-hover:scale-125 transition-transform">🔥</span>
                 <span class="text-xs font-bold text-white/90">Fuego</span>
-                <span id="count-fuego" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">34</span>
+                <span id="count-fuego" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">0</span>
             </button>
             <div class="w-px h-5 bg-white/[0.08]"></div>
             <button onclick="sendReaction('👏', 'aplausos')" class="reaction-btn flex-1 py-1 px-1.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-white/[0.06] active:scale-90 transition group" title="Aplausos">
                 <span class="text-base group-hover:scale-125 transition-transform">👏</span>
                 <span class="text-xs font-bold text-white/90">Aplausos</span>
-                <span id="count-aplausos" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">21</span>
+                <span id="count-aplausos" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">0</span>
             </button>
             <div class="w-px h-5 bg-white/[0.08]"></div>
             <button onclick="sendReaction('😱', 'uyyy')" class="reaction-btn flex-1 py-1 px-1.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-white/[0.06] active:scale-90 transition group" title="¡Uyyyy!">
                 <span class="text-base group-hover:scale-125 transition-transform">😱</span>
                 <span class="text-xs font-bold text-white/90">¡Uyyy!</span>
-                <span id="count-uyyy" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">12</span>
+                <span id="count-uyyy" class="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-white/[0.08] text-white/70">0</span>
             </button>
         </div>
 
@@ -269,7 +269,7 @@
         const frame = document.getElementById('liveFrame');
         if (frame) {
             const currentSrc = frame.src;
-            frame.src = 'about:blank';
+            playbackActive = false; reportPresence(); frame.src = 'about:blank';
             setTimeout(() => { 
                 frame.src = currentSrc;
                 if (icon) icon.classList.remove('animate-spin');
@@ -297,52 +297,36 @@
         }
     }
 
-    // Identificador único del espectador en este dispositivo / navegador (con fallback seguro)
-    let memoryVid = null;
-    function getViewerId() {
-        try {
-            let vid = localStorage.getItem('elas_vid');
-            if (!vid) {
-                vid = 'v_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
-                localStorage.setItem('elas_vid', vid);
-            }
-            return vid;
-        } catch(e) {
-            if (!memoryVid) {
-                memoryVid = 'v_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
-            }
-            return memoryVid;
-        }
+    const currentMatchSlug = {{ match_slug|tojson }};
+    const currentMatchTitle = {{ match_title|tojson }};
+    const audienceSession = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now() + Math.random().toString(36).slice(2);
+    let playbackActive = false, playbackReport = 0;
+    function reportPresence(leaving = false) {
+        const playing = !leaving && playbackActive && Date.now() - playbackReport < 6000;
+        fetch('/api/audience', {method:'POST', headers:{'Content-Type':'application/json'}, keepalive:true,
+            body:JSON.stringify({session_id:audienceSession, match_id:currentMatchSlug, title:currentMatchTitle, playing})}).catch(() => {});
     }
-
-    const currentMatchSlug = "{{ match_slug|default('') }}";
-    const currentChannelSlug = "{{ channel.slug }}";
-
-    async function sendViewerHeartbeat() {
+    window.addEventListener('message', event => {
+        const frame = document.getElementById('liveFrame');
+        if (event.origin !== location.origin || event.source !== frame?.contentWindow || event.data?.type !== 'elciro-playback') return;
+        const changed = playbackActive !== (event.data.playing === true);
+        playbackActive = event.data.playing === true; playbackReport = Date.now();
+        if(changed) reportPresence();
+    });
+    reportPresence();
+    setInterval(reportPresence, 10000);
+    window.addEventListener('pagehide', () => reportPresence(true));
+    async function refreshViewerCount() {
         try {
-            const vid = getViewerId();
-            let url = '/api/viewers/' + encodeURIComponent(currentChannelSlug) + '?vid=' + encodeURIComponent(vid);
-            if (currentMatchSlug) {
-                url += '&m=' + encodeURIComponent(currentMatchSlug);
+            const response = await fetch('/api/viewers/' + encodeURIComponent({{ channel.slug|tojson }}) + '?m=' + encodeURIComponent(currentMatchSlug));
+            if(!response.ok) return;
+            const data = await response.json();
+            for(const id of ['liveViewerCountTop', 'liveViewerCountBottom']) {
+                const element = document.getElementById(id); if(element) element.textContent = data.formatted;
             }
-            const res = await fetch(url);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.ok) {
-                    const elTop = document.getElementById('liveViewerCountTop');
-                    const elBottom = document.getElementById('liveViewerCountBottom');
-                    const countStr = data.formatted || (data.viewers !== undefined ? data.viewers.toString() : '1');
-                    if (elTop) elTop.textContent = countStr;
-                    if (elBottom) elBottom.textContent = countStr;
-                }
-            }
-        } catch(e) {}
+        } catch (_) {}
     }
-
-    // Registrar presencia real de inmediato al cargar el reproductor
-    sendViewerHeartbeat();
-    // Mantener la sesión activa cada 10 segundos
-    setInterval(sendViewerHeartbeat, 10000);
+    setInterval(refreshViewerCount, 10000);
 
     // =========================================================================
     // VIRALIDAD TELEGRAM (1-CLICK SHARE)
@@ -391,29 +375,6 @@
         }
     }
 
-    // Efecto de comunidad en vivo: reacciones ambientales de otros espectadores
-    setInterval(() => {
-        const emojis = ['⚽', '🔥', '👏', '😱'];
-        const types = ['gol', 'fuego', 'aplausos', 'uyyy'];
-        const idx = Math.floor(Math.random() * emojis.length);
-        const overlay = document.getElementById('reactionsOverlay');
-        if (overlay && Math.random() > 0.25) {
-            const span = document.createElement('span');
-            span.className = 'floating-reaction';
-            span.textContent = emojis[idx];
-            span.style.left = (30 + Math.random() * 60) + '%';
-            span.style.setProperty('--rot', (Math.random() * 20 - 10) + 'deg');
-            span.style.setProperty('--rot-end', (Math.random() * 30 - 15) + 'deg');
-            overlay.appendChild(span);
-            setTimeout(() => { if (span.parentNode) span.remove(); }, 1850);
-            
-            const countEl = document.getElementById('count-' + types[idx]);
-            if (countEl) {
-                let current = parseInt(countEl.textContent, 10) || 0;
-                countEl.textContent = current + 1;
-            }
-        }
-    }, 11000);
 </script>
 
 <style>
