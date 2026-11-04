@@ -1,45 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Estadísticas privadas · El Ciro{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Estadísticas privadas</h1>
-<p id="statsStatus" class="text-white/60">Verificando acceso…</p>
-<div id="statsSummary" class="grid grid-cols-2 gap-3 my-4"></div>
-<div class="overflow-x-auto"><table id="statsTable" class="w-full text-sm hidden">
-<thead><tr class="text-left text-white/60"><th class="p-2">Partido / canal</th><th class="p-2">Viendo</th><th class="p-2">Entradas</th><th class="p-2">Visitantes</th></tr></thead>
-<tbody id="statsRows"></tbody></table></div>
+<section class="intro compact"><p class="eyebrow">Solo para ti.</p><h1>Tu audiencia.</h1><p id="statsStatus" role="status">Verificando acceso…</p></section>
+<div id="statsSummary" class="stats-grid"></div>
+<div class="table-wrap" id="statsTable" hidden><table><thead><tr><th>Partido o canal</th><th>Viendo</th><th>Entradas</th><th>Visitantes</th></tr></thead><tbody id="statsRows"></tbody></table></div>
 {% endblock %}
-{% block scripts %}
-<script>
-let statsTimer;
-async function refreshStatistics() {
-    const initData = window.Telegram?.WebApp?.initData || sessionStorage.getItem('elciro_init') || '';
-    const response = await fetch('/api/admin/statistics', {headers: {'X-Telegram-Init-Data': initData}, cache: 'no-store'});
-    if (!response.ok) {
-        document.getElementById('statsStatus').textContent = 'Acceso privado. Abre esta opción desde tu bot de Telegram con la cuenta autorizada.';
-        clearInterval(statsTimer);
-        return;
-    }
-    const data = await response.json();
-    document.getElementById('statsStatus').textContent = 'Actividad del video en los últimos 45 segundos. Visitantes por navegador; cifras estimadas. Actualiza cada 15 segundos.';
-    const summary = document.getElementById('statsSummary');
-    summary.replaceChildren();
-    for (const [label, value] of [['Usuarios del bot', data.bot_users], ['Interacciones del bot', data.bot_entries], ['Entradas al reproductor', data.player_entries], ['Visitantes del reproductor', data.player_visitors], ['Reproduciendo ahora', data.watching], ['Entradas a la Mini App', data.app_entries]]) {
-        const card = document.createElement('div'); card.className = 'apple-glass rounded-xl p-4';
-        const name = document.createElement('p'); name.className = 'text-xs text-white/60'; name.textContent = label;
-        const count = document.createElement('p'); count.className = 'text-2xl font-bold'; count.textContent = value;
-        card.append(name, count); summary.append(card);
-    }
-    const body = document.getElementById('statsRows'); body.replaceChildren();
-    for (const match of data.matches) {
-        const row = document.createElement('tr');
-        for (const value of [match.title, match.watching, match.entries, match.visitors]) {
-            const cell = document.createElement('td'); cell.className = 'p-2 border-t border-white/10'; cell.textContent = value; row.append(cell);
+{% block scripts %}<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let timer;
+    async function refresh() {
+        let auth = window.Telegram?.WebApp?.initData || ''; try {auth ||= sessionStorage.getItem('elciro_init') || '';}catch(_){}
+        const response = await fetch('/api/admin/statistics',{headers:{'X-Telegram-Init-Data':auth},cache:'no-store'});
+        if(!response.ok) { document.getElementById('statsStatus').textContent='Abre esta sección desde tu cuenta autorizada en Telegram.'; clearInterval(timer); return; }
+        const data = await response.json(); document.getElementById('statsStatus').textContent='Una mirada a quienes comparten el deporte contigo.';
+        const summary=document.getElementById('statsSummary'); summary.replaceChildren();
+        for(const [label,value] of [['Reproduciendo ahora',data.watching],['Usuarios del bot',data.bot_users],['Entradas a la Mini App',data.app_entries],['Entradas al reproductor',data.player_entries],['Visitantes del reproductor',data.player_visitors],['Interacciones del bot',data.bot_entries]]) {
+            const card=document.createElement('div');card.className='stat-card';const name=document.createElement('p');name.className='stat-label';name.textContent=label;const count=document.createElement('p');count.className='stat-value';count.textContent=Number(value).toLocaleString('es');card.append(name,count);summary.append(card);
         }
-        body.append(row);
+        const rows=document.getElementById('statsRows'); rows.replaceChildren();
+        for(const match of data.matches){const row=document.createElement('tr');for(const value of [match.title,match.watching,match.entries,match.visitors]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}rows.append(row);}
+        document.getElementById('statsTable').hidden=false;
+        if(!document.getElementById('statsNote')){const note=document.createElement('p');note.id='statsNote';note.className='schedule-note';note.textContent='Actividad estimada del video en los últimos 45 segundos. Visitantes por navegador. Actualización cada 15 segundos.';document.getElementById('statsTable').after(note);}
     }
-    document.getElementById('statsTable').classList.remove('hidden');
-}
-refreshStatistics().catch(() => document.getElementById('statsStatus').textContent = 'Error de conexión. Vuelve a intentar.');
-statsTimer = setInterval(() => refreshStatistics().catch(() => {}), 15000);
-</script>
-{% endblock %}
+    refresh().catch(()=>document.getElementById('statsStatus').textContent='No se pudo conectar. Vuelve a intentar en un momento.'); timer=setInterval(()=>refresh().catch(()=>{}),15000);
+});
+</script>{% endblock %}

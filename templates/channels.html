@@ -1,167 +1,21 @@
 {% extends "base.html" %}
-
-{% block title %}Canales 24/7 en Directo - ElCiro{% endblock %}
-
+{% block title %}Canales · El Ciro{% endblock %}
 {% block content %}
-<div class="space-y-4">
-
-    <!-- CABECERA DE CANALES -->
-    <div class="space-y-3">
-        <div class="flex items-center justify-between">
-            <div>
-                <span class="text-[11px] font-semibold tracking-wider text-red-500 uppercase flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-apple"></span> Transmisión Continua
-                </span>
-                <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mt-0.5">
-                    Canales en Vivo
-                </h1>
-            </div>
-            <span class="text-xs font-medium text-white/40 bg-white/[0.06] border border-white/[0.08] px-2.5 py-1 rounded-full">
-                {{ total_channels }} señales
-            </span>
-        </div>
-
-        <!-- BUSCADOR DE CANALES ESTILO APPLE -->
-        <div class="relative">
-            <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40"></i>
-            <input 
-                type="text" 
-                id="channelSearch" 
-                placeholder="Buscar canal (ej: ESPN 2, Fox, ViX, Disney, MAX)..." 
-                class="w-full pl-10 pr-9 py-2.5 bg-[#1c1c1e] border border-white/[0.08] focus:border-white/30 rounded-xl text-white placeholder-white/40 text-sm focus:outline-none transition-all"
-                onkeyup="filterChannels()"
-            >
-            <button id="clearChannelSearchBtn" onclick="clearChannelSearch()" class="hidden absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white/20 text-white/70 flex items-center justify-center text-[10px] active:scale-90 transition">
-                <i data-lucide="x" class="w-3 h-3"></i>
-            </button>
-        </div>
-
-        <!-- FILTROS DE CATEGORÍAS EN PÍLDORAS HORIZONTALES (iOS STYLE) -->
-        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 text-xs">
-            <button onclick="filterCategory('all')" class="cat-pill whitespace-nowrap px-3 py-1.5 rounded-full font-medium transition apple-pill-active" data-cat="all">
-                Todos ({{ total_channels }})
-            </button>
-            {% for cat_id, cat_info in categories.items() %}
-            <button onclick="filterCategory('{{ cat_id }}')" class="cat-pill whitespace-nowrap px-3 py-1.5 rounded-full font-medium transition apple-pill text-white/70 hover:text-white" data-cat="{{ cat_id }}">
-                {{ cat_info.name }} ({{ cat_info.channels|length }})
-            </button>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- BANNER CANAL OFICIAL TELEGRAM @elasdelfutbol -->
-    <a href="https://t.me/elasdelfutbol" target="_blank" class="apple-glass-card rounded-2xl p-3.5 flex items-center justify-between group hover:border-[#24A1DE]/40 transition-all border border-[#24A1DE]/25 bg-gradient-to-r from-[#24A1DE]/15 via-black/40 to-transparent">
-        <div class="flex items-center space-x-3 min-w-0">
-            <div class="w-10 h-10 rounded-xl bg-[#24A1DE] flex items-center justify-center text-white shadow-lg shadow-[#24A1DE]/25 group-active:scale-95 transition-transform shrink-0">
-                <i data-lucide="send" class="w-5 h-5"></i>
-            </div>
-            <div class="truncate">
-                <div class="flex items-center gap-1.5">
-                    <span class="text-sm font-bold text-white">Canal Oficial: @elasdelfutbol</span>
-                    <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#24A1DE]/20 text-[#24A1DE] border border-[#24A1DE]/30 uppercase">Oficial</span>
-                </div>
-                <p class="text-xs text-white/60 truncate">Únete al canal para transmisiones y avisos en vivo</p>
-            </div>
-        </div>
-        <div class="flex items-center space-x-1 text-xs font-semibold text-[#24A1DE] group-hover:translate-x-0.5 transition-transform shrink-0 pl-2">
-            <span>Unirme</span>
-            <i data-lucide="chevron-right" class="w-4 h-4"></i>
-        </div>
-    </a>
-
-    <!-- CUADRÍCULA DE CANALES (OPTIMIZADA PARA MÓVILES) -->
-    <div id="channelsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 pt-1">
-        {% for ch in channels %}
-        <a href="/ver/{{ ch.slug }}" class="channel-card apple-glass-card rounded-2xl p-3.5 flex flex-col justify-between transition group border border-white/[0.06] hover:border-white/[0.15]" data-category="{{ ch.category }}" data-name="{{ ch.name | lower }} {{ ch.slug }}">
-            <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-semibold uppercase tracking-wider text-white/40 bg-white/[0.05] px-2 py-0.5 rounded-md">
-                        {{ ch.category }}
-                    </span>
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
-                </div>
-                <h3 class="text-xs sm:text-sm font-bold text-white group-hover:text-red-400 transition leading-snug line-clamp-2">
-                    {{ ch.name }}
-                </h3>
-            </div>
-            
-            <div class="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-white/40 group-hover:text-white transition">
-                <span>Ver directo</span>
-                <div class="w-5 h-5 rounded-full bg-white/[0.08] flex items-center justify-center group-hover:bg-red-600 transition">
-                    <i data-lucide="play" class="w-2.5 h-2.5 text-white fill-white ml-0.5"></i>
-                </div>
-            </div>
-        </a>
-        {% endfor %}
-    </div>
-
-    <!-- ESTADO VACÍO EN BÚSQUEDA -->
-    <div id="noChannels" class="hidden apple-glass rounded-2xl p-8 text-center text-white/50 text-xs space-y-2">
-        <p>No se encontraron canales para esta búsqueda.</p>
-        <button onclick="clearChannelSearch()" class="text-red-400 font-medium underline">
-            Ver todos los canales
-        </button>
-    </div>
-
-</div>
+<section class="intro compact"><p class="eyebrow">Tu señal favorita.</p><h1>Sintoniza el deporte.</h1><p>Todos los canales, a un toque.</p></section>
+<div class="toolbar"><label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.1"/><path d="m16 16 4.5 4.5"/></svg><input id="channelSearch" type="search" aria-label="Buscar canal" placeholder="Buscar canal" autocomplete="off"></label>
+<select id="categorySelect" class="select-control" aria-label="Grupo de canales"><option value="all">Todos los canales</option>{% for id, category in categories.items() %}{% if category.channels %}<option value="{{ id }}">{{ category.name }}</option>{% endif %}{% endfor %}</select></div>
+<div class="section-heading"><h2>Canales</h2><span><span id="channelCount">{{ total_channels }}</span> señales</span></div>
+<div class="channel-grid" id="channelGrid">{% for ch in channels %}<a class="channel-card" href="{{ url_for('player_view', slug=ch.slug) }}" data-name="{{ ch.name }} {{ ch.slug }}" data-category="{{ ch.category }}"><div><h2>{{ ch.name }}</h2><p>{{ categories[ch.category].name if ch.category in categories else 'Deportes' }}</p></div><span class="play-circle" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11L13 8z"/></svg></span></a>{% endfor %}</div>
+<div class="empty" id="noChannels" hidden><h2>No encontramos ese canal.</h2><p>Prueba otro nombre o elige otro grupo.</p><button class="text-link" id="resetChannels">Ver todos los canales</button></div>
 {% endblock %}
-
-{% block scripts %}
-<script>
-    let activeCategory = 'all';
-
-    function clearChannelSearch() {
-        const input = document.getElementById('channelSearch');
-        if (input) {
-            input.value = '';
-            document.getElementById('clearChannelSearchBtn').classList.add('hidden');
-            filterChannels();
-        }
+{% block scripts %}<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const search = document.getElementById('channelSearch'), category = document.getElementById('categorySelect');
+    function apply() { let count = 0; const query = normalizeSearch(search.value.trim());
+        document.querySelectorAll('.channel-card').forEach(card => { const visible = normalizeSearch(card.dataset.name).includes(query) && (category.value === 'all' || card.dataset.category === category.value); card.hidden = !visible; if(visible) count++; });
+        document.getElementById('channelCount').textContent = count; document.getElementById('noChannels').hidden = count > 0; document.getElementById('channelGrid').hidden = count === 0;
     }
-
-    function filterCategory(cat) {
-        activeCategory = cat;
-        triggerHaptic('light');
-
-        document.querySelectorAll('.cat-pill').forEach(btn => {
-            if (btn.getAttribute('data-cat') === cat) {
-                btn.className = 'cat-pill whitespace-nowrap px-3 py-1.5 rounded-full font-medium transition apple-pill-active';
-            } else {
-                btn.className = 'cat-pill whitespace-nowrap px-3 py-1.5 rounded-full font-medium transition apple-pill text-white/70 hover:text-white';
-            }
-        });
-        filterChannels();
-    }
-
-    function filterChannels() {
-        const query = (document.getElementById('channelSearch').value || '').toLowerCase().trim();
-        const clearBtn = document.getElementById('clearChannelSearchBtn');
-        if (clearBtn) {
-            clearBtn.classList.toggle('hidden', query.length === 0);
-        }
-
-        const cards = document.querySelectorAll('.channel-card');
-        let visible = 0;
-
-        cards.forEach(card => {
-            const cardCat = card.getAttribute('data-category') || '';
-            const cardName = card.getAttribute('data-name') || '';
-
-            const matchCat = (activeCategory === 'all' || cardCat === activeCategory);
-            const matchQuery = (!query || cardName.includes(query));
-
-            if (matchCat && matchQuery) {
-                card.style.display = '';
-                visible++;
-            } else {
-                card.style.display = 'none';
-            }
-        });
-
-        const noCh = document.getElementById('noChannels');
-        if (noCh) {
-            noCh.classList.toggle('hidden', visible > 0);
-        }
-    }
-</script>
-{% endblock %}
+    search.addEventListener('input',apply); category.addEventListener('change',apply);
+    document.getElementById('resetChannels').addEventListener('click', () => {search.value=''; category.value='all'; apply(); search.focus();});
+});
+</script>{% endblock %}
