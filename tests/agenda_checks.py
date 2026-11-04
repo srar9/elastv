@@ -181,9 +181,11 @@ class SharedSurfaceChecks(unittest.TestCase):
         with patch.object(public_bot.schedule, "get", return_value=events), \
                 patch.object(public_bot, "send") as send, patch.object(public_bot.time, "sleep"):
             public_bot.handle_message(msg)
-        text = "".join(call.args[1] for call in send.call_args_list)
-        self.assertIn("Equipo 034", text)
-        self.assertIn("35 eventos", text)
+        send.assert_called_once()
+        self.assertIn("35 resultados",send.call_args.args[1])
+        view = next(reversed(public_bot.VIEWS.values()))
+        self.assertEqual(len(view['items']),35)
+        self.assertEqual(view['items'][-1]['data']['match'],'Equipo 034 vs Rival')
 
 
 if __name__ == "__main__":

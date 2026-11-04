@@ -2,6 +2,9 @@
 import html
 import os
 import time
+import secrets
+import threading
+from collections import OrderedDict
 from urllib.parse import urlencode, quote
 
 import requests
@@ -14,8 +17,8 @@ TOKEN = os.environ.get("PUBLIC_BOT_TOKEN") or os.environ.get("ELCIRO_BOT_TOKEN",
 BASE_URL = (os.environ.get("WEB_APP_BASE_URL") or
             "https://" + (os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "web-production-dc68f.up.railway.app")).rstrip("/")
 COMMANDS = [dict(command=c, description=d) for c, d in (
-    ("start", "Ver los partidos directamente en este chat"),
-    ("partidos", "Todos los partidos y deportes de hoy"),
+    ("start", "Abrir el menú principal"),
+    ("partidos", "Partidos de hoy, ordenados por páginas"),
     ("buscar", "Buscar equipo, torneo, deporte o canal"),
     ("canales", "Todos los canales disponibles"))]
 USERNAME = None
@@ -34,14 +37,16 @@ def button(label, path, private=True):
             {"url": BASE_URL + path} if private else BASE_URL + path}
 
 
-def send(chat_id, text, rows=None, keyboard=None):
+def send(chat_id, text, rows=None, keyboard=None, remove_keyboard=False):
     payload = dict(chat_id=chat_id, text=text, parse_mode="HTML")
-    if rows:
+    if remove_keyboard:
+        payload["reply_markup"] = dict(remove_keyboard=True)
+    elif rows:
         payload["reply_markup"] = dict(inline_keyboard=rows)
     elif keyboard:
         payload["reply_markup"] = dict(keyboard=keyboard, resize_keyboard=True,
                                      is_persistent=True, input_field_placeholder="Escribe tu equipo, liga o deporte")
-    api("sendMessage", **payload)
+    return api("sendMessage", **payload)
 
 
 def event_buttons(event, private):
@@ -53,11 +58,146 @@ def event_buttons(event, private):
     return [[button(label, "/ver/" + quote(channels[0]["slug"], safe="") + "?" + params, private)]]
 
 
-def chat_keyboard(owner=False):
-    rows = [[dict(text="⚽ Partidos de hoy"), dict(text="📺 Canales")], [dict(text="🔎 Buscar")]]
+PAGE_SIZE = 5
+VIEWS = OrderedDict()
+VIEW_LOCK = threading.Lock()
+VIEW_TTL = 1800
+HOME_TEXT = (
+    "📺 <b>El Ciro TV</b>\n\n"
+    "Elige qué quieres ver.\n"
+    "Los partidos se muestran de 5 en 5; toca uno para abrir su video."
+)
+
+
+def action(text, data):
+    return dict(text=text, callback_data=data)
+
+
+def home_rows(owner=False):
+    rows = [[action("⚽ Partidos de hoy", "menu:events")],
+            [action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")]]
     if owner:
-        rows.append([dict(text="📊 Estadísticas")])
+        rows.append([action("📊 Estadísticas", "menu:stats")])
     return rows
+
+
+def display(chat_id, text, rows, message_id=None):
+    if message_id is None:
+        return send(chat_id, text, rows)
+    return api("editMessageText", chat_id=chat_id, message_id=message_id,
+               text=text, parse_mode="HTML", reply_markup=dict(inline_keyboard=rows))
+
+
+def show_home(chat_id, user_id, private, message_id=None):
+    rows = home_rows(private and user_id == OWNER_ID)
+    if message_id is not None:
+        return display(chat_id, HOME_TEXT, rows, message_id)
+    # Remove the old permanent keyboard and add inline navigation to the SAME
+    # message. /start sends exactly one message and never fetches the schedule.
+    result = send(chat_id, HOME_TEXT, remove_keyboard=True)
+    return api("editMessageReplyMarkup", chat_id=chat_id, message_id=result["message_id"],
+               reply_markup=dict(inline_keyboard=rows))
+
+
+def new_view(chat_id, user_id, private, kind, items, heading, refresh, message_id=None):
+    token = secrets.token_urlsafe(6)
+    view = dict(chat_id=chat_id, user_id=user_id, private=private, kind=kind,
+                items=items, heading=heading, refresh=refresh, created=time.time())
+    with VIEW_LOCK:
+        for key in list(VIEWS):
+            if time.time() - VIEWS[key]["created"] > VIEW_TTL:
+                del VIEWS[key]
+        VIEWS[token] = view
+        while len(VIEWS) > 256:
+            VIEWS.popitem(last=False)
+    text, rows = render_page(token, view, 0)
+    return display(chat_id, text, rows, message_id)
+
+
+def render_page(token, view, page):
+    items = view["items"]
+    pages = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    selected = items[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+    text = view["heading"]
+    if items:
+        text += f"\n\nPágina {page + 1} de {pages} · {len(items)} resultados"
+    elif view["kind"] == "stats":
+        text += "\n\nTodavía no hay reproducciones registradas por partido."
+    else:
+        text += "\n\nNo hay resultados. Prueba otra búsqueda o vuelve al menú."
+    rows = []
+    for item in selected:
+        kind, data = item["kind"], item["data"]
+        if kind == "event":
+            buttons = event_buttons(data, view["private"])
+            if buttons:
+                rows.extend(buttons)
+            else:
+                rows.append([action((data["time"] + " · " + data["match"] + " · Pendiente")[:120], "noop:pending")])
+        elif kind == "channel":
+            rows.append([button("▶ " + data["name"], "/ver/" + quote(data["slug"], safe="") + "?mode=watch", view["private"])])
+        elif kind == "stats":
+            text += (f"\n\n<b>{html.escape(data['title'][:120])}</b>\n"
+                     f"Viendo: {data['watching']} · Entradas: {data['entries']} · Visitantes: {data['visitors']}")
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(action("‹ Anterior", f"page:{token}:{page - 1}"))
+        nav.append(action(f"{page + 1} / {pages}", "noop:page"))
+        if page + 1 < pages:
+            nav.append(action("Siguiente ›", f"page:{token}:{page + 1}"))
+        rows.append(nav)
+    refresh_label = "Otra búsqueda" if view["kind"] == "search" else "Actualizar"
+    rows.append([action("‹ Menú", "menu:home"), action(refresh_label, view["refresh"])])
+    return text, rows
+
+
+def catalog_channels():
+    from web_app import get_unique_channels
+    return get_unique_channels()
+
+
+def show_events(chat_id, user_id, private, message_id=None):
+    events = schedule.get()
+    heading = "⚽ <b>Partidos de hoy</b>\nHora de Venezuela · Toca el partido para ver su video."
+    if schedule.stale:
+        heading += "\nAgenda guardada; la fuente no pudo actualizarse."
+    return new_view(chat_id, user_id, private, "events", [dict(kind="event", data=e) for e in events],
+                    heading, "menu:events", message_id)
+
+
+def show_channels(chat_id, user_id, private, message_id=None):
+    return new_view(chat_id, user_id, private, "channels", [dict(kind="channel", data=c) for c in catalog_channels()],
+                    "📺 <b>Canales</b>\nToca un canal para abrir su video.", "menu:channels", message_id)
+
+
+def show_search(chat_id, user_id, private, query, message_id=None):
+    needle = fold(query)
+    events = schedule.get()
+    matches = [dict(kind="event", data=e) for e in events if needle in fold(
+        " ".join([e["match"], e["competition"]] + [c["name"] for c in e["channels"]]))]
+    matches += [dict(kind="channel", data=c) for c in catalog_channels() if needle in fold(c["name"] + " " + c["slug"])]
+    return new_view(chat_id, user_id, private, "search", matches,
+                    f"🔎 <b>Resultados para {html.escape(query[:100])}</b>\nToca un resultado para abrir el video.",
+                    "menu:search", message_id)
+
+
+def search_prompt(chat_id, message_id=None):
+    return display(chat_id, "🔎 <b>Buscar</b>\n\nEscribe aquí el nombre de tu equipo, liga, deporte o canal.\n"
+                   "Por ejemplo: Real Madrid, NBA o ESPN.", [[action("‹ Menú", "menu:home")]], message_id)
+
+
+def show_stats(chat_id, user_id, private, message_id=None):
+    if user_id != OWNER_ID or not private:
+        return
+    data = summary()
+    heading = (f"📊 <b>Mis estadísticas</b>\n\nViendo ahora: {data['watching']}\n"
+               f"Usuarios del bot: {data['bot_users']}\nEntradas al reproductor: {data['player_entries']}\n"
+               f"Visitantes: {data['player_visitors']}\nEntradas a la Mini App: {data['app_entries']}\nInteracciones: {data['bot_entries']}\n"
+               "Actividad estimada en los últimos 45 segundos.")
+    return new_view(chat_id, user_id, private, "stats", [dict(kind="stats", data=r) for r in data["matches"]],
+                    heading, "menu:stats", message_id)
 
 
 def handle_message(message):
@@ -75,79 +215,65 @@ def handle_message(message):
         return
     bot_entry(user_id)
     parts = text.split(maxsplit=1)
-    command = parts[0]
-    query = parts[1] if len(parts) > 1 else ""
+    command, query = parts[0], parts[1] if len(parts) > 1 else ""
+    if command in ("/start", "/menu", "/help", "/ayuda", "/app", "/web", "/miniapp"):
+        return show_home(chat_id, user_id, private)
     if command in ("/estadisticas", "/stats"):
-        if user_id != OWNER_ID or not private:
-            return
-        data = summary()
-        send(chat_id, f"📊 <b>Estadísticas privadas</b>\nUsuarios del bot: {data['bot_users']}\n"
-             f"Interacciones: {data['bot_entries']}\nEntradas al reproductor: {data['player_entries']}\n"
-             f"Visitantes del reproductor: {data['player_visitors']}\nReproduciendo ahora: {data['watching']}\n"
-             "Presencia estimada por actividad del video en los últimos 45 segundos.",
-             [[button("📊 Ver todos los partidos", "/estadisticas")]])
-        for start in range(0, len(data["matches"]), 15):
-            send(chat_id, "\n\n".join(f"<b>{html.escape(r['title'][:140])}</b>\n"
-                 f"Viendo: {r['watching']} · Entradas: {r['entries']} · Visitantes: {r['visitors']}"
-                 for r in data["matches"][start:start + 15]))
-        return
-    if command in ("/start", "/help", "/ayuda", "/app", "/web", "/miniapp", "/menu"):
-        if private and user_id == OWNER_ID:
-            try:
-                api("setMyCommands", scope=dict(type="chat", chat_id=OWNER_ID), commands=COMMANDS + [
-                    dict(command="estadisticas", description="Audiencia y entradas por partido · privado")])
-            except (RuntimeError, requests.RequestException):
-                pass
-        send(chat_id, "📺 <b>El Ciro TV</b>\nBusca tu equipo, torneo, deporte o canal escribiendo su nombre.\n"
-             "Aquí tienes la cartelera. Toca el partido para abrir directamente su video.",
-             keyboard=chat_keyboard(user_id == OWNER_ID) if private else None)
-        command, query = "/partidos", ""
+        return show_stats(chat_id, user_id, private)
     if command in ("/canales", "/deportes"):
-        send_channels(chat_id, query, private)
-        return
-    if command.startswith("/") and command not in ("/partidos", "/agenda", "/hoy", "/juegos", "/buscar", "/search"):
-        send(chat_id, "Usa /partidos, /canales o /buscar equipo, torneo o deporte.")
-        return
+        return show_search(chat_id, user_id, private, query) if query else show_channels(chat_id, user_id, private)
+    if command in ("/partidos", "/agenda", "/hoy", "/juegos"):
+        return show_events(chat_id, user_id, private)
+    if command in ("/buscar", "/search"):
+        return show_search(chat_id, user_id, private, query) if query else search_prompt(chat_id)
     if not command.startswith("/"):
-        query = text
-    if command in ("/buscar", "/search") and not query:
-        send(chat_id, "🔎 Escribe el nombre del equipo, torneo, deporte o canal que quieres ver.\n"
-             "Por ejemplo: <b>Real Madrid</b>, <b>NBA</b> o <b>ESPN</b>.")
+        return show_search(chat_id, user_id, private, text)
+    return display(chat_id, "Elige una opción del menú o escribe tu equipo para buscar.", home_rows(private and user_id == OWNER_ID))
+
+
+def handle_callback(callback):
+    message = callback.get("message", {})
+    chat = message.get("chat", {})
+    chat_id, message_id = chat.get("id"), message.get("message_id")
+    user_id = callback.get("from", {}).get("id")
+    data = callback.get("data", "")
+    if not chat_id or not message_id or not user_id:
         return
-    needle = fold(query)
-    events = schedule.get()
-    matches = [e for e in events if not needle or needle in fold(
-        " ".join([e["match"], e["competition"]] + [c["name"] for c in e["channels"]]))]
-    send(chat_id, f"📅 <b>{len(matches)} eventos</b> · Hora de Venezuela\nToca un partido para ver el video." +
-         ("\n⚠ Agenda guardada; la fuente no pudo actualizarse." if schedule.stale else "") +
-         ("\nNo hay eventos coincidentes. Prueba /canales o busca otro equipo." if not matches else ""))
-    # All results are included. Each message stays below Telegram's button/text limits.
-    for start in range(0, len(matches), 8):
-        blocks, rows = [], []
-        for event in matches[start:start + 8]:
-            blocks.append(f"{event['time']} · <b>{html.escape(event['match'][:180])}</b>\n"
-                          f"{html.escape(event['competition'][:120])}" +
-                          ("" if event["channels"] else "\nSeñal pendiente de publicación"))
-            rows.extend(event_buttons(event, private))
-        # Telegram allows up to 100 buttons; split separately for events with many signals.
-        send(chat_id, "\n\n".join(blocks), rows[:80])
-        for pos in range(80, len(rows), 80):
-            send(chat_id, "Más señales de estos eventos", rows[pos:pos + 80])
-        time.sleep(1.1)
-    if needle and not matches:
-        send_channels(chat_id, query, private)
-
-
-def send_channels(chat_id, query, private):
-    # This function is also used by Flask, so both catalogs remain identical.
-    from web_app import get_unique_channels
-    channels = [c for c in get_unique_channels() if fold(query) in fold(c["name"] + " " + c["slug"])]
-    if not channels:
-        send(chat_id, "No hay canales coincidentes. Prueba otro nombre.")
-    for start in range(0, len(channels), 40):
-        send(chat_id, f"📺 Canales ({len(channels)})\nToca un canal para abrir su video.", [[button(c["name"], "/ver/" + quote(c["slug"], safe="") + "?mode=watch", private)]
-             for c in channels[start:start + 40]])
-        time.sleep(1.1)
+    private = chat.get("type") == "private"
+    if data.startswith("noop:"):
+        return api("answerCallbackQuery", callback_query_id=callback["id"],
+                   text="La señal todavía no ha sido publicada." if data == "noop:pending" else "Usa Anterior o Siguiente para cambiar de página.")
+    if data.startswith("page:"):
+        try:
+            _, token, raw_page = data.split(":")
+            page = int(raw_page)
+        except ValueError:
+            return api("answerCallbackQuery", callback_query_id=callback["id"], text="Botón no válido.")
+        with VIEW_LOCK:
+            view = VIEWS.get(token)
+        if view and (view["chat_id"] != chat_id or view["user_id"] != user_id):
+            return api("answerCallbackQuery", callback_query_id=callback["id"],
+                       text="Abre tu propio menú con /start.", show_alert=True)
+        api("answerCallbackQuery", callback_query_id=callback["id"])
+        if not view or time.time() - view["created"] > VIEW_TTL:
+            return display(chat_id, "Este listado caducó. Abre Partidos o Canales para actualizarlo.",
+                           home_rows(private and user_id == OWNER_ID), message_id)
+        if view["kind"] == "stats" and (user_id != OWNER_ID or not private):
+            return
+        text, rows = render_page(token, view, page)
+        return display(chat_id, text, rows, message_id)
+    api("answerCallbackQuery", callback_query_id=callback["id"])
+    bot_entry(user_id)
+    routes = {"menu:home": show_home, "menu:events": show_events, "menu:channels": show_channels,
+              "menu:stats": show_stats}
+    try:
+        if data == "menu:search":
+            return search_prompt(chat_id, message_id)
+        if data in routes:
+            return routes[data](chat_id, user_id, private, message_id)
+    except ScheduleUnavailable:
+        return display(chat_id, "La agenda no está disponible temporalmente. Puedes probar los canales.",
+                       home_rows(private and user_id == OWNER_ID), message_id)
 
 
 def configure():
@@ -175,13 +301,17 @@ def main():
     offset = 0
     while True:
         try:
-            updates = api("getUpdates", offset=offset, timeout=25, allowed_updates=["message"])
+            updates = api("getUpdates", offset=offset, timeout=25, allowed_updates=["message", "callback_query"])
             for update in updates:
                 try:
-                    if "message" in update:
+                    if "callback_query" in update:
+                        handle_callback(update["callback_query"])
+                    elif "message" in update:
                         handle_message(update["message"])
                 except ScheduleUnavailable:
-                    send(update["message"]["chat"]["id"], "La agenda no está disponible temporalmente. Prueba /canales.")
+                    message = update.get("message")
+                    if message:
+                        send(message["chat"]["id"], "La agenda no está disponible temporalmente. Prueba /canales.")
                 except Exception as exc:
                     print("Error procesando solicitud pública:", type(exc).__name__, flush=True)
                 offset = update["update_id"] + 1

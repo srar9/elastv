@@ -17,9 +17,16 @@ Un aviso por una reclamación de derechos de autor indica una restricción de la
 `public_bot.py` atiende al público con `PUBLIC_BOT_TOKEN` (o `ELCIRO_BOT_TOKEN`).
 El arranque mantiene el bot de transmisiones separado y ejecuta este bot público para
 el segundo token. No inicia FFmpeg ni permite cambiar claves o detener emisiones.
-`/start` y el botón «Partidos de hoy» envían la cartelera directamente al chat.
-El menú nativo abre comandos, y el teclado permite ver partidos, canales o buscar sin
-salir del bot. Cada partido tiene un único botón que abre directamente su video en
+`/start` envía un solo mensaje con el menú principal, sin consultar ni enviar la agenda.
+Elimina el antiguo teclado permanente e incorpora botones de Partidos, Canales y Buscar
+al mismo mensaje. Cada listado muestra cinco resultados por página; Anterior, Siguiente,
+Menú y Actualizar editan ese mensaje, sin enviar nuevas páginas al chat. Las búsquedas
+combinan partidos y canales en un único listado. Las estadísticas del dueño también
+están paginadas. Los listados conservan una copia estable durante 30 minutos, limitada
+a 256 vistas en memoria; al caducar o reiniciar el proceso, muestran el menú para
+actualizarlos en el mismo mensaje. Los botones de paginación se vinculan al chat y al
+usuario que abrió la lista. El menú nativo de Telegram abre comandos.
+Cada partido tiene un único botón que abre directamente su video en
 `/ver/<canal>?mode=watch`: sin cabecera, agenda ni navegación del sitio. Las señales
 alternativas permanecen en el selector del reproductor, conservando este modo, y
 «Volver al bot» cierra la Mini App. Los eventos sin señal permanecen en el listado
