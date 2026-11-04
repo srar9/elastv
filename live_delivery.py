@@ -13,6 +13,12 @@ class Media:
     content_type: str
 
 
+class UpstreamHTTPError(OSError):
+    def __init__(self, status):
+        super().__init__("MEDIA_HTTP")
+        self.status = status
+
+
 class MediaCache:
     def __init__(self, max_bytes=48 * 1024 * 1024, ttl=45, now=time.monotonic):
         self.max_bytes, self.ttl, self.now = max_bytes, ttl, now
@@ -49,7 +55,7 @@ class MediaCache:
             if not ticket["event"].wait(12):
                 raise TimeoutError("MEDIA_WAIT_TIMEOUT")
             if "error" in ticket:
-                raise OSError("MEDIA_DOWNLOAD_FAILED") from None
+                raise UpstreamHTTPError(ticket["error"]) from None
             return ticket["value"]
         try:
             value = loader()
@@ -62,8 +68,8 @@ class MediaCache:
                     self.size += len(value.body)
                 ticket["value"] = value
             return value
-        except Exception:
-            ticket["error"] = True
+        except Exception as error:
+            ticket["error"] = getattr(error, "status", 502)
             raise
         finally:
             with self.lock:
@@ -100,7 +106,7 @@ class MediaCache:
 def complete_media(response, limit=19000000, deadline=10, now=time.monotonic):
     """Accept only complete files so a truncated download never poisons cache."""
     if response.status_code != 200:
-        raise OSError("MEDIA_HTTP")
+        raise UpstreamHTTPError(response.status_code)
     content_type = response.headers.get("Content-Type", "application/octet-stream")
     if any(t in content_type.lower() for t in ("html", "json", "javascript", "svg")):
         raise OSError("INVALID_MEDIA_TYPE")

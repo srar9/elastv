@@ -1,8 +1,8 @@
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
-from live_delivery import Media, MediaCache, Reports, complete_media
+from unittest.mock import patch, Mock, MagicMock
+from live_delivery import Media, MediaCache, Reports, complete_media, UpstreamHTTPError
 import web_app
 
 
@@ -70,9 +70,30 @@ class DeliveryChecks(unittest.TestCase):
         with patch.object(web_app,'MEDIA_CACHE',cache),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',return_value=Media(b'full-file','video/mp2t')) as load:
             for _ in range(2):
                 response=client.get(path);self.assertEqual(response.status_code,200);self.assertEqual(response.data,b'full-file')
-                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v1')
+                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v2')
             self.assertEqual(load.call_count,1)
             self.assertEqual(client.get(path.replace('espn/','espn2/')).status_code,403)
             self.assertEqual(load.call_count,1)
+
+    def test_expired_source_authorization_is_not_hidden_as_a_retryable_gateway_error(self):
+        path=web_app.signed_target('espn','https://cdn.example/expired.ts','https://tvf90.com/')
+        with patch.object(web_app,'MEDIA_CACHE',self.cache()),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',side_effect=UpstreamHTTPError(403)):
+            response=web_app.app.test_client().get(path)
+            self.assertEqual(response.status_code,403);self.assertEqual(response.headers['X-Video-Error'],'source-auth')
+
+    def test_broken_download_retries_once_on_a_fresh_connection(self):
+        old=Mock();old.get.side_effect=web_app.requests.ConnectionError('broken')
+        replacement=MagicMock();response=Mock(status_code=200,headers={'Content-Type':'video/mp2t','Content-Length':'3'})
+        response.iter_content.return_value=[b'abc'];replacement.get.return_value.__enter__.return_value=response
+        with patch.object(web_app.MEDIA_DOWNLOADS,'session',old,create=True),patch.object(web_app.requests,'Session',return_value=replacement):
+            self.assertEqual(web_app.download_complete_media('https://cdn.example/a.ts','').body,b'abc')
+        old.close.assert_called_once();replacement.get.assert_called_once()
+
+    def test_authorization_denial_is_returned_immediately_without_socket_retries(self):
+        session=MagicMock();response=Mock(status_code=403,headers={});session.get.return_value.__enter__.return_value=response
+        with patch.object(web_app.MEDIA_DOWNLOADS,'session',session,create=True),patch.object(web_app.requests,'Session') as create:
+            with self.assertRaises(UpstreamHTTPError) as error:web_app.download_complete_media('https://cdn.example/a.ts','')
+            self.assertEqual(error.exception.status,403);create.assert_not_called()
+        session.get.assert_called_once();response.iter_content.assert_not_called()
 
 if __name__=='__main__':unittest.main()

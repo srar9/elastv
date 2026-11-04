@@ -733,7 +733,7 @@ def api_events_viewers():
 # PROXY HLS UNIVERSAL (KEEP-ALIVE ULTRA-RÁPIDO CON AUTO-REFRESCO DE TOKEN)
 # ==============================================================================
 HLS_SESSION = requests.Session()
-from live_delivery import MediaCache, Reports, complete_media
+from live_delivery import MediaCache, Reports, complete_media, UpstreamHTTPError
 import threading as _delivery_threads
 MEDIA_CACHE = MediaCache()
 MEDIA_DOWNLOADS = _delivery_threads.local()
@@ -817,8 +817,21 @@ def download_complete_media(target, ref):
     # the old adapter's repeated long retries while a live buffer drains.
     if not hasattr(MEDIA_DOWNLOADS, "session"):
         MEDIA_DOWNLOADS.session = requests.Session()
-    with MEDIA_DOWNLOADS.session.get(target, headers=upstream_headers(ref), stream=True, timeout=(2, 3)) as response:
-        return complete_media(response)
+    started = time.monotonic()
+    for attempt in range(2):
+        try:
+            with MEDIA_DOWNLOADS.session.get(target, headers=upstream_headers(ref), stream=True, timeout=(2, 3)) as response:
+                return complete_media(response, deadline=max(1, 10 - (time.monotonic() - started)))
+        except UpstreamHTTPError as error:
+            if error.status not in (408, 429, 500, 502, 503, 504) or attempt or time.monotonic() - started > 6:
+                raise
+        except (requests.RequestException, OSError):
+            if attempt or time.monotonic() - started > 6:
+                raise
+            # Retry a broken/truncated transfer on a fresh connection. Never
+            # change the source or retry a denied authorization here.
+            MEDIA_DOWNLOADS.session.close()
+            MEDIA_DOWNLOADS.session = requests.Session()
 
 
 def prepare_recent_media(text, base, ref):
@@ -892,6 +905,13 @@ def hls_proxy_segment(slug):
     if not request.headers.get("Range"):
         try:
             media = MEDIA_CACHE.get((target, ref), lambda: download_complete_media(target, ref))
+        except UpstreamHTTPError as error:
+            source_status(slug, "failed", "El origen rechazó el fragmento de video.")
+            response = jsonify({"error": "La señal debe volver a conectarse."})
+            response.status_code = error.status if error.status in (401, 403) else 502
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Video-Error"] = "source-auth" if error.status in (401, 403) else "source-http"
+            return response
         except (requests.RequestException, OSError, ValueError):
             source_status(slug, "failed", "No se pudo completar el fragmento de video.")
             response = jsonify({"error": "No se pudo descargar el fragmento."})
@@ -901,7 +921,7 @@ def hls_proxy_segment(slug):
         source_status(slug, "ok", "El origen de la señal está entregando datos.")
         response = Response(media.body, content_type=media.content_type)
         response.headers["Cache-Control"] = "private, max-age=30"
-        response.headers["X-Video-Delivery"] = "prepared-v1"
+        response.headers["X-Video-Delivery"] = "prepared-v2"
         return response
     headers = upstream_headers(ref)
     if request.headers.get("Range"):
