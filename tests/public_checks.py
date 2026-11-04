@@ -338,12 +338,11 @@ class PublicChecks(unittest.TestCase):
         upstream=Mock(status_code=200,headers={'Content-Type':'video/mp2t'})
         upstream.iter_content.return_value=[b'video' * 100]
         path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
-        with patch.object(web_app.MEDIA_DOWNLOADS,'session',create=True) as session:
-            session.get.return_value.__enter__.return_value=upstream
+        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
             response=self.client.get(path)
             self.assertEqual(response.status_code,200)
             self.assertEqual(response.data,b'video'*100)
-            session.get.return_value.__exit__.assert_called()
+            upstream.close.assert_called()
         web_app.SOURCE_REPORTS.queue.join()
         self.assertEqual(audience.summary()['failing_signals'],0)
 
@@ -351,8 +350,7 @@ class PublicChecks(unittest.TestCase):
         from unittest.mock import Mock
         upstream=Mock(status_code=200,headers={'Content-Type':'text/html; charset=utf-8'})
         path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
-        with patch.object(web_app.MEDIA_DOWNLOADS,'session',create=True) as session:
-            session.get.return_value.__enter__.return_value=upstream
+        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
             result=self.client.get(path)
             self.assertEqual(result.status_code,502)
             upstream.iter_content.assert_not_called()

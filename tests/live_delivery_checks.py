@@ -62,24 +62,37 @@ class DeliveryChecks(unittest.TestCase):
         text='#EXTM3U\na.ts\nb.ts\nc.ts\nhttps://other.example/foreign.ts\n'
         with patch.object(web_app.MEDIA_CACHE,'prepare') as prepare:
             web_app.prepare_recent_media(text,'https://cdn.example/live/playlist.m3u8','https://tvf90.com/')
-            self.assertEqual([call.args[0][0] for call in prepare.call_args_list],['https://cdn.example/live/b.ts','https://cdn.example/live/c.ts'])
+            self.assertEqual([call.args[0][0] for call in prepare.call_args_list],['https://cdn.example/live/c.ts'])
 
     def test_signed_segment_uses_complete_cached_response_and_rejects_tampering(self):
         client=web_app.app.test_client();cache=self.cache()
+        cache.put(('https://cdn.example/segment.ts','https://tvf90.com/'),Media(b'full-file','video/mp2t'))
         path=web_app.signed_target('espn','https://cdn.example/segment.ts','https://tvf90.com/')
-        with patch.object(web_app,'MEDIA_CACHE',cache),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',return_value=Media(b'full-file','video/mp2t')) as load:
+        with patch.object(web_app,'MEDIA_CACHE',cache),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app.HLS_SESSION,'get') as load:
             for _ in range(2):
                 response=client.get(path);self.assertEqual(response.status_code,200);self.assertEqual(response.data,b'full-file')
-                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v4')
-            self.assertEqual(load.call_count,1)
+                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'progressive-cache-v1')
+            self.assertEqual(load.call_count,0)
             self.assertEqual(client.get(path.replace('espn/','espn2/')).status_code,403)
-            self.assertEqual(load.call_count,1)
+            self.assertEqual(load.call_count,0)
 
     def test_expired_source_authorization_is_not_hidden_as_a_retryable_gateway_error(self):
         path=web_app.signed_target('espn','https://cdn.example/expired.ts','https://tvf90.com/')
-        with patch.object(web_app,'MEDIA_CACHE',self.cache()),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',side_effect=UpstreamHTTPError(403)):
+        with patch.object(web_app,'MEDIA_CACHE',self.cache()),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app.HLS_SESSION,'get',return_value=Mock(status_code=403,headers={})):
             response=web_app.app.test_client().get(path)
-            self.assertEqual(response.status_code,403);self.assertEqual(response.headers['X-Video-Error'],'source-auth')
+            self.assertEqual(response.status_code,403)
+
+    def test_first_bytes_are_sent_before_the_remaining_fragment_is_downloaded(self):
+        second_read=threading.Event();upstream=Mock(status_code=200,headers={'Content-Type':'video/mp2t','Content-Length':'6'})
+        def chunks(**_):
+            yield b'abc'
+            second_read.set()
+            yield b'def'
+        upstream.iter_content.side_effect=chunks
+        path=web_app.signed_target('espn','https://cdn.example/first.ts','https://tvf90.com/')
+        with patch.object(web_app,'MEDIA_CACHE',self.cache()),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
+            response=web_app.app.test_client().get(path,buffered=False)
+            self.assertFalse(second_read.is_set());self.assertEqual(next(iter(response.response)),b'abc');response.close()
 
     def test_broken_download_retries_once_on_a_fresh_connection(self):
         old=Mock();old.get.side_effect=web_app.requests.ConnectionError('broken')

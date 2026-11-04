@@ -41,6 +41,26 @@ class MediaCache:
         self.items.move_to_end(key)
         return value
 
+    def peek(self, key):
+        with self.lock:
+            return self._cached(key)
+
+    def _store(self, key, value):
+        if len(value.body) > self.max_bytes:
+            return
+        old = self.items.pop(key, None)
+        if old is not None:
+            self.size -= len(old[1].body)
+        while self.items and self.size + len(value.body) > self.max_bytes:
+            _, (_, old) = self.items.popitem(last=False)
+            self.size -= len(old.body)
+        self.items[key] = (self.now() + self.ttl, value)
+        self.size += len(value.body)
+
+    def put(self, key, value):
+        with self.lock:
+            self._store(key, value)
+
     def get(self, key, loader):
         with self.lock:
             cached = self._cached(key)
@@ -60,12 +80,7 @@ class MediaCache:
         try:
             value = loader()
             with self.lock:
-                if len(value.body) <= self.max_bytes:
-                    while self.items and self.size + len(value.body) > self.max_bytes:
-                        _, (_, old) = self.items.popitem(last=False)
-                        self.size -= len(old.body)
-                    self.items[key] = (self.now() + self.ttl, value)
-                    self.size += len(value.body)
+                self._store(key, value)
                 ticket["value"] = value
             return value
         except Exception as error:

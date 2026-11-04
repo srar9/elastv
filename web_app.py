@@ -733,7 +733,7 @@ def api_events_viewers():
 # PROXY HLS UNIVERSAL (KEEP-ALIVE ULTRA-RÁPIDO CON AUTO-REFRESCO DE TOKEN)
 # ==============================================================================
 HLS_SESSION = requests.Session()
-from live_delivery import MediaCache, Reports, complete_media, UpstreamHTTPError
+from live_delivery import Media, MediaCache, Reports, complete_media, UpstreamHTTPError
 import threading as _delivery_threads
 MEDIA_CACHE = MediaCache()
 MEDIA_DOWNLOADS = _delivery_threads.local()
@@ -840,7 +840,7 @@ def prepare_recent_media(text, base, ref):
     origin = urllib.parse.urlsplit(base)
     targets = [urllib.parse.urljoin(base, line.strip()) for line in text.splitlines()
                if line.strip() and not line.startswith("#")]
-    for target in targets[-3:]:
+    for target in targets[-2:]:
         parsed = urllib.parse.urlsplit(target)
         if parsed.scheme not in ("https", "http") or parsed.netloc != origin.netloc:
             continue
@@ -910,26 +910,12 @@ def hls_proxy_sub(slug):
 @app.route("/stream/live/<slug>/segment.ts")
 def hls_proxy_segment(slug):
     target, ref = verified_target(slug)
-    if not request.headers.get("Range"):
-        try:
-            media = MEDIA_CACHE.get((target, ref), lambda: download_complete_media(target, ref))
-        except UpstreamHTTPError as error:
-            source_status(slug, "failed", "El origen rechazó el fragmento de video.")
-            response = jsonify({"error": "La señal debe volver a conectarse."})
-            response.status_code = error.status if error.status in (401, 403) else 502
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["X-Video-Error"] = "source-auth" if error.status in (401, 403) else "source-http"
-            return response
-        except (requests.RequestException, OSError, ValueError):
-            source_status(slug, "failed", "No se pudo completar el fragmento de video.")
-            response = jsonify({"error": "No se pudo descargar el fragmento."})
-            response.status_code = 502
-            response.headers["Cache-Control"] = "no-store"
-            return response
+    media = MEDIA_CACHE.peek((target, ref)) if not request.headers.get("Range") else None
+    if media is not None:
         source_status(slug, "ok", "El origen de la señal está entregando datos.")
         response = Response(media.body, content_type=media.content_type)
         response.headers["Cache-Control"] = "private, max-age=30"
-        response.headers["X-Video-Delivery"] = "prepared-v4"
+        response.headers["X-Video-Delivery"] = "progressive-cache-v1"
         return response
     headers = upstream_headers(ref)
     if request.headers.get("Range"):
@@ -943,22 +929,36 @@ def hls_proxy_segment(slug):
             abort(502)
         if upstream.status_code not in (200, 206):
             source_status(slug, "failed", f"El origen respondió HTTP {upstream.status_code} al solicitar video.")
+            status = upstream.status_code
             upstream.close()
-            abort(502)
+            abort(status if status in (401, 403) else 502)
     except requests.RequestException:
         source_status(slug, "failed", "Se perdió la conexión con el origen de video.")
         abort(502)
     def generate():
         received = False
+        parts, size = [], 0
+        retain = not request.headers.get("Range")
         try:
-            for chunk in upstream.iter_content(chunk_size=65536):
+            for chunk in upstream.iter_content(chunk_size=16384):
                 if chunk:
+                    if retain:
+                        size += len(chunk)
+                        if size <= 19000000:
+                            parts.append(chunk)
+                        else:
+                            retain = False
+                            parts.clear()
                     if not received:
                         source_status(slug, "ok", "El origen de la señal está entregando datos.")
                         received = True
                     yield chunk
             if not received:
                 source_status(slug, "failed", "El origen entregó una respuesta de video vacía.")
+            elif retain:
+                expected = upstream.headers.get("Content-Length")
+                if not expected or upstream.headers.get("Content-Encoding") or size == int(expected):
+                    MEDIA_CACHE.put((target, ref), Media(b"".join(parts), upstream.headers.get("Content-Type", "application/octet-stream")))
         except requests.RequestException:
             source_status(slug, "failed", "La descarga de video se interrumpió.")
             raise
@@ -970,6 +970,7 @@ def hls_proxy_segment(slug):
         if key in upstream.headers and not (key == "Content-Length" and upstream.headers.get("Content-Encoding")):
             response.headers[key] = upstream.headers[key]
     response.headers["Cache-Control"] = "private, max-age=30"
+    response.headers["X-Video-Delivery"] = "progressive-v1"
     response.call_on_close(upstream.close)
     return response
 
