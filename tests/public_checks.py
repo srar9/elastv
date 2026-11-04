@@ -62,11 +62,12 @@ class PublicChecks(unittest.TestCase):
 
     def test_private_menu_and_no_control_commands(self):
         for user_id in (123, audience.OWNER_ID):
-            with patch.object(public_bot, 'send', return_value={'message_id':17}) as send, patch.object(public_bot, 'api') as api, patch.object(public_bot.schedule, 'get') as schedule:
+            with patch.object(public_bot, 'send', return_value={'message_id':17}) as send, patch.object(public_bot, 'api') as api, patch.object(public_bot.schedule, 'get',return_value=[]) as schedule:
                 public_bot.handle_message(dict(chat=dict(id=user_id,type='private'), **{'from':dict(id=user_id)}, text='/start'))
                 send.assert_called_once()
-                schedule.assert_not_called()
+                schedule.assert_called_once()
                 rows = api.call_args.kwargs['reply_markup']['inline_keyboard']
+                self.assertTrue(any('web_app' in item and item['web_app']['url'] == public_bot.BASE_URL+'/' for row in rows for item in row))
                 self.assertEqual(any('Estadísticas' in item['text'] for row in rows for item in row), user_id == audience.OWNER_ID)
         with patch.object(public_bot, 'send') as send:
             public_bot.handle_message(dict(chat=dict(id=-12,type='group'), **{'from':dict(id=audience.OWNER_ID)}, text='/stats'))
@@ -98,17 +99,22 @@ class PublicChecks(unittest.TestCase):
             self.assertTrue(all('dsports_eventos' in url for url in urls))
             self.assertTrue(all(parse_qs(urlsplit(url).query)['mode'] == ['watch'] for url in urls))
 
-    def test_start_sends_only_one_menu_without_loading_games(self):
+    def test_start_sends_one_dashboard_with_miniapp_and_games(self):
         events = [dict(match=f'Team {i}', match_slug=f'team-{i}', competition='Basketball', time='20:00',
                        channels=[dict(slug='espn',name='ESPN'),dict(slug='espn2',name='ESPN 2')]) for i in range(19)]
         with patch.object(public_bot.schedule, 'get', return_value=events) as schedule, patch.object(public_bot, 'send',return_value={'message_id':17}) as send, patch.object(public_bot,'api') as api:
             public_bot.handle_message(dict(chat=dict(id=123,type='private'), **{'from':dict(id=123)}, text='/start'))
             send.assert_called_once()
-            schedule.assert_not_called()
+            schedule.assert_called_once()
             self.assertTrue(send.call_args.kwargs['remove_keyboard'])
             self.assertNotIn('Team',send.call_args.args[1])
-            self.assertEqual(api.call_args.args[0],'editMessageReplyMarkup')
+            self.assertEqual(api.call_args.args[0],'editMessageText')
             self.assertEqual(api.call_args.kwargs['message_id'],17)
+            rows=api.call_args.kwargs['reply_markup']['inline_keyboard']
+            video_buttons=[item for row in rows for item in row if '/ver/' in item.get('web_app',{}).get('url','')]
+            self.assertEqual(len(video_buttons),5)
+            self.assertTrue(any(item.get('web_app',{}).get('url')==public_bot.BASE_URL+'/' for row in rows for item in row))
+            self.assertIn('19 resultados',api.call_args.kwargs['text'])
 
     def test_search_button_prompts_inside_chat(self):
         with patch.object(public_bot.schedule,'get') as schedule, patch.object(public_bot,'send') as send:
@@ -132,7 +138,7 @@ class PublicChecks(unittest.TestCase):
         with patch.object(public_bot.schedule,'get',return_value=events),patch.object(public_bot,'catalog_channels',return_value=channels),patch.object(public_bot,'send') as send:
             public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='ESPN'))
             send.assert_called_once()
-            self.assertEqual(sum('web_app' in item for row in send.call_args.args[2] for item in row),2)
+            self.assertEqual(sum('/ver/' in item.get('web_app',{}).get('url','') for row in send.call_args.args[2] for item in row),2)
 
     def test_expired_or_other_users_pages_do_not_send_new_messages(self):
         view=dict(chat_id=123,user_id=123,private=True,kind='events',items=[],heading='Games',refresh='menu:events',created=time.time())
@@ -161,19 +167,43 @@ class PublicChecks(unittest.TestCase):
         with patch.object(public_bot,'catalog_channels',return_value=channels),patch.object(public_bot,'summary',return_value=data),patch.object(public_bot,'send') as send:
             public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/canales'))
             send.assert_called_once()
-            self.assertEqual(sum('web_app' in item for row in send.call_args.args[2] for item in row),5)
+            self.assertEqual(sum('/ver/' in item.get('web_app',{}).get('url','') for row in send.call_args.args[2] for item in row),5)
             send.reset_mock()
             public_bot.handle_message(dict(chat=dict(id=audience.OWNER_ID,type='private'),**{'from':dict(id=audience.OWNER_ID)},text='/estadisticas'))
             send.assert_called_once()
             self.assertIn('Match 4',send.call_args.args[1])
             self.assertNotIn('Match 5',send.call_args.args[1])
 
-    def test_telegram_menu_opens_commands_instead_of_website(self):
+    def test_telegram_menu_keeps_miniapp_available(self):
         with patch.object(public_bot,'api',return_value={'username':'Elcirotv_bot'}) as api:
             public_bot.configure()
             menus=[call.kwargs['menu_button'] for call in api.call_args_list if call.args[0]=='setChatMenuButton']
             self.assertTrue(menus)
-            self.assertTrue(all(menu==dict(type='commands') for menu in menus))
+            self.assertTrue(all(menu==dict(type='web_app',text='Mini app',web_app=dict(url=public_bot.BASE_URL)) for menu in menus))
+
+    def test_bot_and_miniapp_use_chronological_order_with_unknown_times_last(self):
+        events=[dict(match=name,match_slug=name.lower(),competition='Liga',time=clock,channels=[dict(slug='espn',name='ESPN')]) for name,clock in [('Late','23:00'),('Unknown','--:--'),('Morning','08:00'),('Afternoon','15:30')]]
+        with patch.object(public_bot.schedule,'get',return_value=events),patch.object(public_bot,'send') as send:
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/partidos'))
+            buttons=[item for row in send.call_args.args[2] for item in row if '/ver/' in item.get('web_app',{}).get('url','')]
+            self.assertEqual([parse_qs(urlsplit(item['web_app']['url']).query)['title'][0] for item in buttons],['Morning','Afternoon','Late','Unknown'])
+            response=self.client.get('/api/partidos')
+            self.assertEqual([event['match'] for event in response.json['events']],['Morning','Afternoon','Late','Unknown'])
+
+    def test_start_keeps_miniapp_even_when_agenda_is_down(self):
+        with patch.object(public_bot.schedule,'get',side_effect=public_bot.ScheduleUnavailable),patch.object(public_bot,'send',return_value={'message_id':17}) as send,patch.object(public_bot,'api') as api:
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/start'))
+            send.assert_called_once()
+            self.assertEqual(api.call_args.args[0],'editMessageText')
+            rows=api.call_args.kwargs['reply_markup']['inline_keyboard']
+            self.assertTrue(any('web_app' in item for row in rows for item in row))
+
+    def test_app_command_shows_miniapp_without_loading_agenda(self):
+        with patch.object(public_bot.schedule,'get') as schedule,patch.object(public_bot,'send') as send:
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/app'))
+            send.assert_called_once()
+            schedule.assert_not_called()
+            self.assertTrue(any('web_app' in item for row in send.call_args.args[2] for item in row))
 
     def test_watch_mode_keeps_video_and_alternatives_without_site_navigation(self):
         events=[dict(match='A vs B',match_slug='a-vs-b',competition='Basketball',time='20:00',channels=[dict(slug='espn',name='ESPN'),dict(slug='espn2',name='ESPN 2')])]

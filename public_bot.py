@@ -9,7 +9,7 @@ from urllib.parse import urlencode, quote
 
 import requests
 
-from agenda_service import schedule, ScheduleUnavailable
+from agenda_service import schedule, ScheduleUnavailable, chronological
 from bot_catalog import fold, normalize_command
 from audience import OWNER_ID, bot_entry, summary
 
@@ -17,8 +17,9 @@ TOKEN = os.environ.get("PUBLIC_BOT_TOKEN") or os.environ.get("ELCIRO_BOT_TOKEN",
 BASE_URL = (os.environ.get("WEB_APP_BASE_URL") or
             "https://" + (os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "web-production-dc68f.up.railway.app")).rstrip("/")
 COMMANDS = [dict(command=c, description=d) for c, d in (
-    ("start", "Abrir el menú principal"),
-    ("partidos", "Partidos de hoy, ordenados por páginas"),
+    ("start", "Menú, mini app y partidos por hora"),
+    ("app", "Abrir la mini app con la agenda completa"),
+    ("partidos", "Partidos de hoy, ordenados por hora"),
     ("buscar", "Buscar equipo, torneo, deporte o canal"),
     ("canales", "Todos los canales disponibles"))]
 USERNAME = None
@@ -64,8 +65,8 @@ VIEW_LOCK = threading.Lock()
 VIEW_TTL = 1800
 HOME_TEXT = (
     "📺 <b>El Ciro TV</b>\n\n"
-    "Elige qué quieres ver.\n"
-    "Los partidos se muestran de 5 en 5; toca uno para abrir su video."
+    "Tu agenda deportiva, ordenada por hora de Venezuela.\n"
+    "Abre la mini app para ver todos los partidos o elige uno aquí."
 )
 
 
@@ -73,8 +74,9 @@ def action(text, data):
     return dict(text=text, callback_data=data)
 
 
-def home_rows(owner=False):
-    rows = [[action("⚽ Partidos de hoy", "menu:events")],
+def home_rows(owner=False, private=True):
+    rows = [[button("📱 Abrir mini app", "/", private)],
+            [action("⚽ Partidos por hora", "menu:events")],
             [action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")]]
     if owner:
         rows.append([action("📊 Estadísticas", "menu:stats")])
@@ -89,14 +91,23 @@ def display(chat_id, text, rows, message_id=None):
 
 
 def show_home(chat_id, user_id, private, message_id=None):
-    rows = home_rows(private and user_id == OWNER_ID)
-    if message_id is not None:
-        return display(chat_id, HOME_TEXT, rows, message_id)
-    # Remove the old permanent keyboard and add inline navigation to the SAME
-    # message. /start sends exactly one message and never fetches the schedule.
-    result = send(chat_id, HOME_TEXT, remove_keyboard=True)
-    return api("editMessageReplyMarkup", chat_id=chat_id, message_id=result["message_id"],
-               reply_markup=dict(inline_keyboard=rows))
+    rows = home_rows(private and user_id == OWNER_ID, private)
+    if message_id is None:
+        # Make the mini app available immediately, then load the first games into
+        # this same message. Never send the complete agenda as multiple messages.
+        result = send(chat_id, HOME_TEXT, remove_keyboard=True)
+        message_id = result["message_id"]
+        api("editMessageReplyMarkup", chat_id=chat_id, message_id=message_id,
+            reply_markup=dict(inline_keyboard=rows))
+    try:
+        return show_events(chat_id, user_id, private, message_id)
+    except ScheduleUnavailable:
+        return display(chat_id, HOME_TEXT + "\n\nLa agenda no pudo actualizarse. Puedes abrir la mini app o probar los canales.", rows, message_id)
+
+
+def show_app(chat_id, user_id, private):
+    return display(chat_id, "📱 <b>Mini app de El Ciro TV</b>\n\nTodos los partidos ordenados por hora, búsqueda y canales en un solo lugar.",
+                   home_rows(private and user_id == OWNER_ID, private))
 
 
 def new_view(chat_id, user_id, private, kind, items, heading, refresh, message_id=None):
@@ -126,7 +137,8 @@ def render_page(token, view, page):
         text += "\n\nTodavía no hay reproducciones registradas por partido."
     else:
         text += "\n\nNo hay resultados. Prueba otra búsqueda o vuelve al menú."
-    rows = []
+    app_path = "/canales" if view["kind"] == "channels" else "/"
+    rows = [[button("📱 Abrir mini app", app_path, view["private"])]] if view["kind"] != "stats" else []
     for item in selected:
         kind, data = item["kind"], item["data"]
         if kind == "event":
@@ -149,7 +161,11 @@ def render_page(token, view, page):
             nav.append(action("Siguiente ›", f"page:{token}:{page + 1}"))
         rows.append(nav)
     refresh_label = "Otra búsqueda" if view["kind"] == "search" else "Actualizar"
-    rows.append([action("‹ Menú", "menu:home"), action(refresh_label, view["refresh"])])
+    if view["kind"] == "events":
+        rows.append([action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")])
+        if view["private"] and view["user_id"] == OWNER_ID:
+            rows.append([action("📊 Estadísticas", "menu:stats")])
+    rows.append([action("‹ Inicio", "menu:home"), action(refresh_label, view["refresh"])])
     return text, rows
 
 
@@ -159,8 +175,8 @@ def catalog_channels():
 
 
 def show_events(chat_id, user_id, private, message_id=None):
-    events = schedule.get()
-    heading = "⚽ <b>Partidos de hoy</b>\nHora de Venezuela · Toca el partido para ver su video."
+    events = chronological(schedule.get())
+    heading = "⚽ <b>Partidos de hoy · por hora</b>\nHora de Venezuela · Toca el partido para ver su video.\nMini app: agenda completa, búsqueda y canales."
     if schedule.stale:
         heading += "\nAgenda guardada; la fuente no pudo actualizarse."
     return new_view(chat_id, user_id, private, "events", [dict(kind="event", data=e) for e in events],
@@ -174,7 +190,7 @@ def show_channels(chat_id, user_id, private, message_id=None):
 
 def show_search(chat_id, user_id, private, query, message_id=None):
     needle = fold(query)
-    events = schedule.get()
+    events = chronological(schedule.get())
     matches = [dict(kind="event", data=e) for e in events if needle in fold(
         " ".join([e["match"], e["competition"]] + [c["name"] for c in e["channels"]]))]
     matches += [dict(kind="channel", data=c) for c in catalog_channels() if needle in fold(c["name"] + " " + c["slug"])]
@@ -216,8 +232,10 @@ def handle_message(message):
     bot_entry(user_id)
     parts = text.split(maxsplit=1)
     command, query = parts[0], parts[1] if len(parts) > 1 else ""
-    if command in ("/start", "/menu", "/help", "/ayuda", "/app", "/web", "/miniapp"):
+    if command in ("/start", "/menu", "/help", "/ayuda"):
         return show_home(chat_id, user_id, private)
+    if command in ("/app", "/web", "/miniapp"):
+        return show_app(chat_id, user_id, private)
     if command in ("/estadisticas", "/stats"):
         return show_stats(chat_id, user_id, private)
     if command in ("/canales", "/deportes"):
@@ -228,7 +246,7 @@ def handle_message(message):
         return show_search(chat_id, user_id, private, query) if query else search_prompt(chat_id)
     if not command.startswith("/"):
         return show_search(chat_id, user_id, private, text)
-    return display(chat_id, "Elige una opción del menú o escribe tu equipo para buscar.", home_rows(private and user_id == OWNER_ID))
+    return display(chat_id, "Elige una opción del menú o escribe tu equipo para buscar.", home_rows(private and user_id == OWNER_ID, private))
 
 
 def handle_callback(callback):
@@ -257,7 +275,7 @@ def handle_callback(callback):
         api("answerCallbackQuery", callback_query_id=callback["id"])
         if not view or time.time() - view["created"] > VIEW_TTL:
             return display(chat_id, "Este listado caducó. Abre Partidos o Canales para actualizarlo.",
-                           home_rows(private and user_id == OWNER_ID), message_id)
+                           home_rows(private and user_id == OWNER_ID, private), message_id)
         if view["kind"] == "stats" and (user_id != OWNER_ID or not private):
             return
         text, rows = render_page(token, view, page)
@@ -273,7 +291,7 @@ def handle_callback(callback):
             return routes[data](chat_id, user_id, private, message_id)
     except ScheduleUnavailable:
         return display(chat_id, "La agenda no está disponible temporalmente. Puedes probar los canales.",
-                       home_rows(private and user_id == OWNER_ID), message_id)
+                       home_rows(private and user_id == OWNER_ID, private), message_id)
 
 
 def configure():
@@ -286,9 +304,10 @@ def configure():
     except RuntimeError:
         # Telegram may not know the owner's private chat until their first /start.
         print("Menú privado pendiente; /estadisticas sigue disponible para el dueño.", flush=True)
-    api("setChatMenuButton", menu_button=dict(type="commands"))
+    mini_app_menu = dict(type="web_app", text="Mini app", web_app=dict(url=BASE_URL))
+    api("setChatMenuButton", menu_button=mini_app_menu)
     try:
-        api("setChatMenuButton", chat_id=OWNER_ID, menu_button=dict(type="commands"))
+        api("setChatMenuButton", chat_id=OWNER_ID, menu_button=mini_app_menu)
     except RuntimeError:
         pass
 

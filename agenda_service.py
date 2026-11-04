@@ -23,6 +23,17 @@ class ScheduleUnavailable(RuntimeError):
     pass
 
 
+def chronological(events):
+    """Order the already-local schedule by clock time; unknown times go last."""
+    def key(event):
+        clock = re.fullmatch(r"(\d{1,2}):(\d{2})", str(event.get("time", "")))
+        minutes = 24 * 60
+        if clock and int(clock[1]) < 24 and int(clock[2]) < 60:
+            minutes = int(clock[1]) * 60 + int(clock[2])
+        return minutes, str(event.get("match", "")).casefold()
+    return sorted(events, key=key)
+
+
 def slugify(text):
     plain = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", plain).strip("-")

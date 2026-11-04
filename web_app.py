@@ -15,7 +15,7 @@ import secrets
 import audience
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
-from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ
+from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ, chronological
 from channel_source import CHANNEL_NAMES, resolve_roja_source, resolve_player
 from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
@@ -338,7 +338,7 @@ def format_viewers(count):
 # ==============================================================================
 def fetch_tarjetarojatv_schedule():
     try:
-        events = schedule.get()
+        events = chronological(schedule.get())
     except ScheduleUnavailable:
         events = []
     SCHEDULE_CACHE["events"] = events
