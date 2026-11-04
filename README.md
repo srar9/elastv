@@ -17,9 +17,17 @@ Un aviso por una reclamación de derechos de autor indica una restricción de la
 `public_bot.py` atiende al público con `PUBLIC_BOT_TOKEN` (o `ELCIRO_BOT_TOKEN`).
 El arranque mantiene el bot de transmisiones separado y ejecuta este bot público para
 el segundo token. No inicia FFmpeg ni permite cambiar claves o detener emisiones.
+`/start` y el botón «Partidos de hoy» envían la cartelera directamente al chat.
+El menú nativo abre comandos, y el teclado permite ver partidos, canales o buscar sin
+salir del bot. Cada partido tiene un único botón que abre directamente su video en
+`/ver/<canal>?mode=watch`: sin cabecera, agenda ni navegación del sitio. Las señales
+alternativas permanecen en el selector del reproductor, conservando este modo, y
+«Volver al bot» cierra la Mini App. Los eventos sin señal permanecen en el listado
+como pendientes, sin prometer reproducción. Los navegadores pueden requerir tocar
+reproducir o activar el sonido después de abrir el video.
 `/partidos` muestra todos los eventos de las dos agendas compartidas, incluidos otros
 deportes y eventos sin señal. `/buscar` o un nombre escrito directamente busca equipos,
-torneos y canales. Los botones de cada señal abren `/ver/<canal>` en la Mini App.
+torneos y canales. El botón de cada partido abre su video en la Mini App.
 Configura `WEB_APP_BASE_URL` con la URL HTTPS pública; en Railway se utiliza el dominio
 público del servicio si no se proporciona esa variable. Los botones Web App funcionan
 en chats privados; en grupos se ofrecen enlaces web.

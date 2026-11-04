@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         if(tg) {
             tg.ready(); tg.expand(); tg.setHeaderColor('#f5f5f7'); tg.setBackgroundColor('#f5f5f7');
-            if(location.pathname !== '/') { tg.BackButton?.show(); tg.BackButton?.onClick(() => location.assign('/')); }
+            if(document.body.classList.contains('watch-mode')) { tg.BackButton?.show(); tg.BackButton?.onClick(() => tg.close()); }
+            else if(location.pathname !== '/') { tg.BackButton?.show(); tg.BackButton?.onClick(() => location.assign('/')); }
             else tg.BackButton?.hide();
         }
     } catch (_) {}
@@ -16,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/audience', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:session,match_id:'__app__',title:'Mini App',playing:false})}).catch(() => {});
         const auth = tg?.initData || sessionStorage.getItem('elciro_init') || '';
         if(auth) fetch('/api/admin/statistics',{headers:{'X-Telegram-Init-Data':auth},cache:'no-store'}).then(response => {
-            if(response.ok) document.getElementById('ownerLink').hidden = false;
+            const link = document.getElementById('ownerLink'); if(response.ok && link) link.hidden = false;
         }).catch(() => {});
     } catch (_) {}
 });

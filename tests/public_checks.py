@@ -62,10 +62,10 @@ class PublicChecks(unittest.TestCase):
 
     def test_private_menu_and_no_control_commands(self):
         for user_id in (123, audience.OWNER_ID):
-            with patch.object(public_bot, 'send') as send, patch.object(public_bot, 'api'):
+            with patch.object(public_bot, 'send') as send, patch.object(public_bot, 'api'), patch.object(public_bot.schedule, 'get', return_value=[]):
                 public_bot.handle_message(dict(chat=dict(id=user_id,type='private'), **{'from':dict(id=user_id)}, text='/start'))
-                rows = send.call_args.args[2]
-                self.assertEqual(any('Estadísticas' in r[0]['text'] for r in rows), user_id == audience.OWNER_ID)
+                rows = send.call_args_list[0].kwargs['keyboard']
+                self.assertEqual(any('Estadísticas' in item['text'] for row in rows for item in row), user_id == audience.OWNER_ID)
         with patch.object(public_bot, 'send') as send:
             public_bot.handle_message(dict(chat=dict(id=-12,type='group'), **{'from':dict(id=audience.OWNER_ID)}, text='/stats'))
             send.assert_not_called()
@@ -79,6 +79,59 @@ class PublicChecks(unittest.TestCase):
             urls = [b['web_app']['url'] for b in buttons if '/ver/' in b['web_app']['url']]
             self.assertEqual(len(urls), 19)
             self.assertTrue(all('dsports_eventos' in url for url in urls))
+            self.assertTrue(all(parse_qs(urlsplit(url).query)['mode'] == ['watch'] for url in urls))
+
+    def test_start_automatically_lists_every_game_once(self):
+        events = [dict(match=f'Team {i}', match_slug=f'team-{i}', competition='Basketball', time='20:00',
+                       channels=[dict(slug='espn',name='ESPN'),dict(slug='espn2',name='ESPN 2')]) for i in range(19)]
+        with patch.object(public_bot.schedule, 'get', return_value=events), patch.object(public_bot, 'send') as send, patch.object(public_bot.time, 'sleep'):
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'), **{'from':dict(id=123)}, text='/start'))
+            buttons = [row[0] for call in send.call_args_list for row in (call.args[2] if len(call.args)>2 else [])]
+            self.assertEqual(len(buttons),19)
+            self.assertTrue(all('/ver/espn?' in b['web_app']['url'] for b in buttons))
+            self.assertTrue(all('Team' in b['text'] for b in buttons))
+            self.assertIn('Team 18', '\n'.join(call.args[1] for call in send.call_args_list))
+            self.assertIn('keyboard',send.call_args_list[0].kwargs)
+
+    def test_search_button_prompts_inside_chat(self):
+        with patch.object(public_bot.schedule,'get') as schedule, patch.object(public_bot,'send') as send:
+            public_bot.handle_message(dict(chat=dict(id=123,type='private'), **{'from':dict(id=123)},text='🔎 Buscar'))
+            schedule.assert_not_called()
+            self.assertIn('Escribe el nombre',send.call_args.args[1])
+            self.assertEqual(len(send.call_args.args),2)
+
+    def test_telegram_menu_opens_commands_instead_of_website(self):
+        with patch.object(public_bot,'api',return_value={'username':'Elcirotv_bot'}) as api:
+            public_bot.configure()
+            menus=[call.kwargs['menu_button'] for call in api.call_args_list if call.args[0]=='setChatMenuButton']
+            self.assertTrue(menus)
+            self.assertTrue(all(menu==dict(type='commands') for menu in menus))
+
+    def test_watch_mode_keeps_video_and_alternatives_without_site_navigation(self):
+        events=[dict(match='A vs B',match_slug='a-vs-b',competition='Basketball',time='20:00',channels=[dict(slug='espn',name='ESPN'),dict(slug='espn2',name='ESPN 2')])]
+        with patch.object(web_app.schedule,'events',events), patch.object(web_app.schedule,'day',web_app.datetime.now(web_app.LOCAL_TZ).date()), patch.object(web_app,'fetch_tarjetarojatv_schedule') as fetch:
+            response=self.client.get('/ver/espn?m=a-vs-b&mode=watch')
+            self.assertEqual(response.status_code,200)
+            markup=response.get_data(as_text=True)
+            self.assertIn('class="watch-mode"',markup)
+            self.assertIn('id="liveFrame"',markup)
+            self.assertIn('/embed/espn',markup)
+            self.assertIn('espn2?',markup)
+            self.assertIn('mode=watch',markup)
+            self.assertIn('Volver al bot',markup)
+            self.assertNotIn('class="site-header"',markup)
+            self.assertNotIn('class="site-footer"',markup)
+            self.assertNotIn('Todos los partidos',markup)
+            fetch.assert_not_called()
+
+    def test_cold_watch_page_does_not_wait_for_agenda_or_catalog(self):
+        with patch.object(web_app.schedule,'day',None), patch.object(web_app,'fetch_tarjetarojatv_schedule') as agenda, patch.object(web_app,'get_unique_channels') as channels:
+            result=self.client.get('/ver/espn?m=a-vs-b&title=A+vs+B&mode=watch')
+            self.assertEqual(result.status_code,200)
+            self.assertIn(b'id="liveFrame"',result.data)
+            self.assertIn(b"fetch('/api/partidos')",result.data)
+            agenda.assert_not_called()
+            channels.assert_not_called()
 
     def test_hls_rewrites_keys_maps_and_nested_playlists(self):
         playlist = '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI="/audio.m3u8"\n#EXT-X-KEY:METHOD=AES-128,URI="../key?k=1"\n#EXT-X-MAP:URI="init.mp4"\n#EXT-X-STREAM-INF:BANDWIDTH=900\n../variant?id=2\nsegment.ts\n'

@@ -15,7 +15,7 @@ import secrets
 import audience
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
-from agenda_service import schedule, ScheduleUnavailable
+from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ
 from channel_source import CHANNEL_NAMES, resolve_roja_source, resolve_player
 from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 
@@ -572,7 +572,13 @@ def player_view(slug):
     competition = req_comp
     event_channels = []
 
-    schedule_events = fetch_tarjetarojatv_schedule()
+    watch_mode = request.args.get("mode") == "watch"
+    if watch_mode:
+        # Render the video shell immediately, even on a cold web worker. The browser
+        # fetches alternative signals separately while the embedded player starts.
+        schedule_events = list(schedule.events) if schedule.day == datetime.now(LOCAL_TZ).date() else []
+    else:
+        schedule_events = fetch_tarjetarojatv_schedule()
 
     if req_match:
         match_slug = slugify_match(req_match)
@@ -617,7 +623,7 @@ def player_view(slug):
     clean_stream_src = None
 
     # Canales recomendados para el menú inferior
-    all_unique = get_unique_channels()
+    all_unique = [] if watch_mode else get_unique_channels()
     recommended = [c for c in all_unique if c["slug"] != clean_slug][:12]
 
     # Calcular espectadores en vivo
