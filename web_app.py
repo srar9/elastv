@@ -894,6 +894,14 @@ def hls_proxy_sub(slug):
     target, ref = verified_target(slug)
     try:
         return playlist_response(target, ref, slug)
+    except requests.HTTPError as error:
+        status = getattr(error.response, "status_code", 0)
+        source_status(slug, "failed", "El origen rechazó la lista de reproducción.")
+        response = jsonify({"error": "La señal debe volver a conectarse."})
+        response.status_code = status if status in (401, 403) else 502
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Video-Error"] = "source-auth" if status in (401, 403) else "source-http"
+        return response
     except (requests.RequestException, ValueError):
         source_status(slug, "failed", "No se pudo descargar una lista de reproducción de la señal.")
         abort(502)
@@ -921,7 +929,7 @@ def hls_proxy_segment(slug):
         source_status(slug, "ok", "El origen de la señal está entregando datos.")
         response = Response(media.body, content_type=media.content_type)
         response.headers["Cache-Control"] = "private, max-age=30"
-        response.headers["X-Video-Delivery"] = "prepared-v2"
+        response.headers["X-Video-Delivery"] = "prepared-v3"
         return response
     headers = upstream_headers(ref)
     if request.headers.get("Range"):

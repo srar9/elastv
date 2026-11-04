@@ -70,7 +70,7 @@ class DeliveryChecks(unittest.TestCase):
         with patch.object(web_app,'MEDIA_CACHE',cache),patch.object(web_app,'SOURCE_REPORTS'),patch.object(web_app,'download_complete_media',return_value=Media(b'full-file','video/mp2t')) as load:
             for _ in range(2):
                 response=client.get(path);self.assertEqual(response.status_code,200);self.assertEqual(response.data,b'full-file')
-                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v2')
+                self.assertEqual(response.headers['Content-Length'],'9');self.assertEqual(response.headers['X-Video-Delivery'],'prepared-v3')
             self.assertEqual(load.call_count,1)
             self.assertEqual(client.get(path.replace('espn/','espn2/')).status_code,403)
             self.assertEqual(load.call_count,1)
@@ -95,5 +95,14 @@ class DeliveryChecks(unittest.TestCase):
             with self.assertRaises(UpstreamHTTPError) as error:web_app.download_complete_media('https://cdn.example/a.ts','')
             self.assertEqual(error.exception.status,403);create.assert_not_called()
         session.get.assert_called_once();response.iter_content.assert_not_called()
+
+    def test_expired_playlist_also_requests_a_new_session_without_gateway_retries(self):
+        upstream=Mock(status_code=403)
+        upstream.raise_for_status.side_effect=web_app.requests.HTTPError(response=upstream)
+        path=web_app.signed_target('espn','https://cdn.example/live.m3u8','https://tvf90.com/',True)
+        with patch.object(web_app.HLS_SESSION,'get') as get,patch.object(web_app,'SOURCE_REPORTS'):
+            get.return_value.__enter__.return_value=upstream
+            response=web_app.app.test_client().get(path)
+        self.assertEqual(response.status_code,403);self.assertEqual(response.headers['X-Video-Error'],'source-auth')
 
 if __name__=='__main__':unittest.main()
