@@ -733,6 +733,11 @@ def api_events_viewers():
 # PROXY HLS UNIVERSAL (KEEP-ALIVE ULTRA-RÁPIDO CON AUTO-REFRESCO DE TOKEN)
 # ==============================================================================
 HLS_SESSION = requests.Session()
+from live_delivery import MediaCache, Reports, complete_media
+import threading as _delivery_threads
+MEDIA_CACHE = MediaCache()
+MEDIA_DOWNLOADS = _delivery_threads.local()
+SOURCE_REPORTS = Reports(lambda *args: audience.signal_event(*args))
 _adapter = requests.adapters.HTTPAdapter(pool_connections=60, pool_maxsize=120, max_retries=2)
 HLS_SESSION.mount("https://", _adapter)
 HLS_SESSION.mount("http://", _adapter)
@@ -800,16 +805,40 @@ def playlist_response(target, ref, slug):
         upstream.raise_for_status()
         if not upstream.text.lstrip().startswith("#EXTM3U"):
             raise ValueError("Invalid HLS playlist")
-        response = Response(rewrite_playlist(upstream.text, upstream.url, slug, ref), content_type="application/vnd.apple.mpegurl")
+        text = upstream.text
+        prepare_recent_media(text, upstream.url, ref)
+        response = Response(rewrite_playlist(text, upstream.url, slug, ref), content_type="application/vnd.apple.mpegurl")
         response.headers["Cache-Control"] = "no-store"
         return response
+
+
+def download_complete_media(target, ref):
+    # A separate session per thread avoids sharing mutable requests state and
+    # the old adapter's repeated long retries while a live buffer drains.
+    if not hasattr(MEDIA_DOWNLOADS, "session"):
+        MEDIA_DOWNLOADS.session = requests.Session()
+    with MEDIA_DOWNLOADS.session.get(target, headers=upstream_headers(ref), stream=True, timeout=(2, 3)) as response:
+        return complete_media(response)
+
+
+def prepare_recent_media(text, base, ref):
+    if "#EXT-X-STREAM-INF" in text or "#EXT-X-BYTERANGE" in text:
+        return
+    origin = urllib.parse.urlsplit(base)
+    targets = [urllib.parse.urljoin(base, line.strip()) for line in text.splitlines()
+               if line.strip() and not line.startswith("#")]
+    for target in targets[-3:]:
+        parsed = urllib.parse.urlsplit(target)
+        if parsed.scheme not in ("https", "http") or parsed.netloc != origin.netloc:
+            continue
+        MEDIA_CACHE.prepare((target, ref), lambda target=target: download_complete_media(target, ref))
 
 
 def source_status(slug, status, detail):
     try:
         name = TR_CHANNELS.get(slug, {}).get("name") or next(
             (ch.get("name", slug) for event in schedule.events for ch in event.get("channels", []) if ch.get("slug") == slug), slug)
-        audience.signal_event(slug, status, detail, name)
+        SOURCE_REPORTS.submit(slug, status, detail, name)
     except sqlite3.Error:
         # Diagnostics must never prevent playback when the database is busy.
         app.logger.warning("No se pudo registrar el estado de la señal")
@@ -860,6 +889,20 @@ def hls_proxy_sub(slug):
 @app.route("/stream/live/<slug>/segment.ts")
 def hls_proxy_segment(slug):
     target, ref = verified_target(slug)
+    if not request.headers.get("Range"):
+        try:
+            media = MEDIA_CACHE.get((target, ref), lambda: download_complete_media(target, ref))
+        except (requests.RequestException, OSError, ValueError):
+            source_status(slug, "failed", "No se pudo completar el fragmento de video.")
+            response = jsonify({"error": "No se pudo descargar el fragmento."})
+            response.status_code = 502
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        source_status(slug, "ok", "El origen de la señal está entregando datos.")
+        response = Response(media.body, content_type=media.content_type)
+        response.headers["Cache-Control"] = "private, max-age=30"
+        response.headers["X-Video-Delivery"] = "prepared-v1"
+        return response
     headers = upstream_headers(ref)
     if request.headers.get("Range"):
         headers["Range"] = request.headers["Range"]

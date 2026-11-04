@@ -16,6 +16,11 @@ import web_app
 
 class PublicChecks(unittest.TestCase):
     def setUp(self):
+        web_app.SOURCE_REPORTS.queue.join()
+        from live_delivery import MediaCache
+        self.media_cache=MediaCache()
+        self.media_patch=patch.object(web_app,'MEDIA_CACHE',self.media_cache)
+        self.media_patch.start()
         self.temp = tempfile.TemporaryDirectory()
         self.db = patch.object(audience, 'DB_PATH', str(Path(self.temp.name) / 'audience.db'))
         self.db.start()
@@ -23,6 +28,9 @@ class PublicChecks(unittest.TestCase):
         self.client = web_app.app.test_client()
 
     def tearDown(self):
+        web_app.SOURCE_REPORTS.queue.join()
+        self.media_patch.stop()
+        self.media_cache.close()
         self.db.stop()
         self.temp.cleanup()
 
@@ -319,6 +327,7 @@ class PublicChecks(unittest.TestCase):
     def test_proxy_reports_missing_source_but_not_invalid_unsigned_requests(self):
         with patch.object(web_app,'resolve_tarjetarojatv_stream',return_value={}):
             self.assertEqual(self.client.get('/stream/live/espn/master.m3u8').status_code,503)
+        web_app.SOURCE_REPORTS.queue.join()
         self.assertEqual(audience.summary()['failing_signals'],1)
         self.assertEqual(self.client.get('/stream/live/espn2/segment.ts?target=http://127.0.0.1').status_code,403)
         self.assertEqual(len(audience.summary()['signals']),1)
@@ -329,21 +338,25 @@ class PublicChecks(unittest.TestCase):
         upstream=Mock(status_code=200,headers={'Content-Type':'video/mp2t'})
         upstream.iter_content.return_value=[b'video' * 100]
         path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
-        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
+        with patch.object(web_app.MEDIA_DOWNLOADS,'session',create=True) as session:
+            session.get.return_value.__enter__.return_value=upstream
             response=self.client.get(path)
             self.assertEqual(response.status_code,200)
             self.assertEqual(response.data,b'video'*100)
+            session.get.return_value.__exit__.assert_called()
+        web_app.SOURCE_REPORTS.queue.join()
         self.assertEqual(audience.summary()['failing_signals'],0)
-        upstream.close.assert_called()
 
     def test_proxy_rejects_provider_html_instead_of_executing_it_on_our_origin(self):
         from unittest.mock import Mock
         upstream=Mock(status_code=200,headers={'Content-Type':'text/html; charset=utf-8'})
         path=web_app.signed_target('espn','https://cdn.example/video.ts','https://player.example/')
-        with patch.object(web_app.HLS_SESSION,'get',return_value=upstream):
+        with patch.object(web_app.MEDIA_DOWNLOADS,'session',create=True) as session:
+            session.get.return_value.__enter__.return_value=upstream
             result=self.client.get(path)
             self.assertEqual(result.status_code,502)
             upstream.iter_content.assert_not_called()
+        web_app.SOURCE_REPORTS.queue.join()
         self.assertEqual(audience.summary()['failing_signals'],1)
 
     def test_player_keeps_the_real_channel_id_for_aliases(self):
