@@ -5,8 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         if(tg) {
             tg.ready(); tg.expand(); tg.setHeaderColor('#f5f5f7'); tg.setBackgroundColor('#f5f5f7');
-            if(document.body.classList.contains('watch-mode')) { tg.BackButton?.show(); tg.BackButton?.onClick(() => tg.close()); }
-            else if(location.pathname !== '/') { tg.BackButton?.show(); tg.BackButton?.onClick(() => location.assign('/')); }
+            if(location.pathname !== '/') { tg.BackButton?.show(); tg.BackButton?.onClick(() => history.length>1?history.back():location.assign('/')); }
             else tg.BackButton?.hide();
         }
     } catch (_) {}

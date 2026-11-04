@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ match_title or channel.name }} · El Ciro{% endblock %}
 {% block content %}
-{% if request.args.get('mode') != 'watch' %}<a href="/" class="back-link">‹ Todos los partidos</a>{% endif %}
+<a href="{{ match_url or '/canales' }}" class="back-link">‹ {{ 'Canales del partido' if match_url else 'Todos los canales' }}</a>
 <div class="player-heading"><p>{{ competition or 'Deportes en directo' }}</p><h1>{{ match_title or channel.name }}</h1></div>
 <div class="player-frame" id="playerWrapper"><iframe id="liveFrame" title="Reproductor de {{ match_title or channel.name }}" src="{{ clean_embed_url }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe></div>
-<div class="player-controls"><label class="signal-control">Señal<select id="signalSelect" class="select-control" aria-label="Elegir señal del partido">{% for ch in event_channels %}<option value="{{ url_for('player_view', slug=ch.slug, m=match_slug, title=match_title, c=competition, mode=request.args.get('mode', '')) }}" {% if ch.slug == request.view_args.get('slug', channel.slug).strip().lower() %}selected{% endif %}>{{ ch.name }}</option>{% endfor %}</select></label><div class="player-actions">{% if request.args.get('mode') == 'watch' %}<a class="text-link" id="backToBot" href="https://t.me/Elcirotv_bot">Volver al bot</a>{% endif %}<button type="button" id="reconnect">Reconectar</button><button type="button" id="fullscreen">Pantalla completa</button></div></div>
+<div class="player-controls"><label class="signal-control">Canal<select id="signalSelect" class="select-control" aria-label="Elegir canal del partido">{% for ch in event_channels %}<option value="{{ url_for('player_view', slug=ch.slug, m=match_slug, title=match_title, c=competition, at=event_start or none, mode=request.args.get('mode')) }}" {% if ch.slug == request.view_args.get('slug', channel.slug).strip().lower() %}selected{% endif %}>{{ ch.name }}</option>{% endfor %}</select></label><div class="player-actions"><button type="button" id="reconnect">Reconectar</button><button type="button" id="fullscreen">Pantalla completa</button></div></div>
+{% if event_channels|length > 1 %}<label class="auto-signal"><input type="checkbox" id="autoSwitch" checked> Probar otro canal del mismo partido si falla</label>{% else %}<input type="checkbox" id="autoSwitch" checked hidden>{% endif %}
 <p id="playerStatus" class="player-note" role="status" aria-live="polite" hidden></p>
 <p class="player-note">Si la señal se detiene, puedes reconectar{% if event_channels|length > 1 %} o elegir otra opción del mismo partido{% endif %}.</p>
 {% endblock %}
 {% block scripts %}
-<script type="application/json" id="playerConfig">{{ {"match":match_slug,"title":match_title,"channel":request.view_args.get('slug',channel.slug).strip().lower(),"competition":competition,"mode":request.args.get('mode','')}|tojson }}</script>
-<script src="{{ url_for('static', filename='player.js', v='1') }}"></script>
+<script type="application/json" id="playerConfig">{{ {"match":match_slug,"title":match_title,"channel":request.view_args.get('slug',channel.slug).strip().lower(),"competition":competition,"starts_at":event_start,"mode":request.args.get('mode','')}|tojson }}</script>
+<script src="{{ url_for('static', filename='player.js', v='2') }}"></script>
 {% endblock %}

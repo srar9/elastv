@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ event.match ~ ' · Elegir canal' if event else 'Partido no disponible' }} · El Ciro{% endblock %}
+{% block content %}
+<a href="/" class="back-link">‹ Todos los partidos</a>
+{% if event %}
+<section class="intro compact"><p class="eyebrow">{{ event.competition }}</p><h1>{{ event.match }}</h1><p>{{ event.time }} · Elige el canal para ver el partido.</p></section>
+<div class="section-heading"><h2>Canales del partido</h2><span>{{ event.channels|length }} {{ 'opción' if event.channels|length == 1 else 'opciones' }}</span></div>
+{% if event.channels %}
+<div class="channel-grid match-channels">
+{% for channel in event.channels %}
+<a class="channel-card match-channel" href="{{ url_for('player_view', slug=channel.slug, m=event.match_slug, title=event.match, c=event.competition, at=event.get('starts_at','')) }}" aria-label="Ver {{ event.match }} en {{ channel.name }}">
+<div><p class="channel-option">Opción {{ loop.index }}{% if channel.lang %} · {{ channel.lang }}{% endif %}</p><h2>{{ channel.name }}</h2><span class="text-link">Ver partido →</span></div>
+<span class="play-circle" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11L13 8z"/></svg></span>
+</a>
+{% endfor %}
+</div>
+<p class="schedule-note">Estas son las señales publicadas para este encuentro. Si una falla, puedes elegir otra.</p>
+{% else %}
+<div class="empty"><h2>Canales por confirmar.</h2><p>El partido está en la agenda y todavía no tiene señales publicadas.</p><a class="text-link" href="{{ url_for('match_view', match_slug=event.match_slug, c=event.competition, at=event.get('starts_at','')) }}">Actualizar canales</a></div>
+{% endif %}
+{% else %}
+<div class="empty"><h2>No encontramos este partido.</h2><p>Abre la cartelera actual y vuelve a seleccionarlo.</p><a class="text-link" href="/">Ver los partidos de hoy →</a></div>
+{% endif %}
+{% endblock %}

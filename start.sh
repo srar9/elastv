@@ -23,7 +23,7 @@ done &
 # 2. Iniciar Bot 2: El Ciro TV Bot (@Elcirotv_bot) en segundo plano
 ELCIRO_TOKEN="${ELCIRO_BOT_TOKEN:-8626036800:AAEqCZ-bEXrRCNL2E30gLRvJuCP1piDJwPQ}"
 export PUBLIC_BOT_TOKEN="${PUBLIC_BOT_TOKEN:-$ELCIRO_TOKEN}"
-if [ "$PUBLIC_BOT_TOKEN" != "$BOT1_TOKEN" ]; then
+if [ "${ENABLE_PUBLIC_BOT:-0}" = "1" ] && [ "$PUBLIC_BOT_TOKEN" != "$BOT1_TOKEN" ]; then
     while true; do
         echo "Iniciando Bot ElCiro TV (Elcirotv_bot)..."
         ELCIRO_BOT_TOKEN="$ELCIRO_TOKEN" PUBLIC_BOT_TOKEN="${PUBLIC_BOT_TOKEN:-$ELCIRO_TOKEN}" python -u public_bot.py

@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from agenda_service import schedule, ScheduleUnavailable, LOCAL_TZ, chronological
 from channel_source import CHANNEL_NAMES, resolve_roja_source, resolve_player
-from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context, url_for, redirect
 
 from team_helper import parse_match_teams, get_team_short, get_team_badge, is_match_live
 
@@ -552,6 +552,24 @@ def channels_view():
         active_page="channels"
     )
 
+
+def find_match(events, match_slug, competition="", starts_at=""):
+    """Select a specific fixture, including fixtures with the same title."""
+    candidates = [event for event in events if event.get("match_slug") == match_slug
+                  and (not competition or event.get("competition") == competition)
+                  and (not starts_at or event.get("starts_at", "") == starts_at)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+@app.route("/partido/<match_slug>")
+def match_view(match_slug):
+    event = find_match(fetch_tarjetarojatv_schedule(), match_slug,
+                       request.args.get("c", ""), request.args.get("at", ""))
+    if not event:
+        return render_template("match.html", event=None, active_page="home"), 404
+    return render_template("match.html", event=event, active_page="home")
+
+
 @app.route("/ver/<slug>")
 def player_view(slug):
     clean_slug = slug.strip().lower()
@@ -566,11 +584,13 @@ def player_view(slug):
     req_match = request.args.get("m") or request.args.get("match")
     req_title = request.args.get("title")
     req_comp = request.args.get("c") or request.args.get("competition") or ""
+    event_start = request.args.get("at", "")
 
     match_slug = ""
     match_title = ""
     competition = req_comp
     event_channels = []
+    match_url = ""
 
     watch_mode = request.args.get("mode") == "watch"
     if watch_mode:
@@ -583,27 +603,15 @@ def player_view(slug):
     if req_match:
         match_slug = slugify_match(req_match)
         match_title = req_title or req_match.replace("-", " ").title()
-        for ev in schedule_events:
-            if ev.get("match_slug") == match_slug:
-                event_channels = list(ev.get("channels", []))
-                if not req_title and ev.get("match"):
-                    match_title = ev.get("match")
-                if not competition and ev.get("competition"):
-                    competition = ev.get("competition")
-                break
-    else:
-        # Buscar si este canal tiene un partido en curso en la agenda
-        for ev in schedule_events:
-            for ch in ev.get("channels", []):
-                if ch.get("slug") == clean_slug:
-                    match_slug = ev.get("match_slug")
-                    match_title = ev.get("match")
-                    if not competition and ev.get("competition"):
-                        competition = ev.get("competition")
-                    event_channels = list(ev.get("channels", []))
-                    break
-            if match_slug:
-                break
+        ev = find_match(schedule_events, match_slug, req_comp, event_start)
+        if ev:
+            event_channels = list(ev.get("channels", []))
+            match_title = ev.get("match", match_title)
+            competition = ev.get("competition", competition)
+            event_start = ev.get("starts_at", "")
+            match_url = url_for("match_view", match_slug=match_slug, c=competition, at=event_start)
+            if not any(channel.get("slug") == clean_slug for channel in event_channels):
+                return redirect(match_url)
 
     if not match_slug:
         match_slug = clean_slug
@@ -623,8 +631,7 @@ def player_view(slug):
     clean_stream_src = None
 
     # Canales recomendados para el menú inferior
-    all_unique = [] if watch_mode else get_unique_channels()
-    recommended = [c for c in all_unique if c["slug"] != clean_slug][:12]
+    recommended = []
 
     # Calcular espectadores en vivo
     v_count = get_event_viewers_count(match_slug, event_channels)
@@ -647,6 +654,8 @@ def player_view(slug):
         match_slug=match_slug,
         competition=competition,
         event_channels=event_channels,
+        match_url=match_url,
+        event_start=event_start,
         team1=t1,
         team2=t2,
         team1_badge=t1_badge,
@@ -656,7 +665,7 @@ def player_view(slug):
         viewers=v_count,
         formatted_viewers=formatted_v,
         short_viewers=short_v,
-        active_page="player"
+        active_page="home" if match_url else "channels"
     )
 
 @app.route("/api/viewers/<slug>")

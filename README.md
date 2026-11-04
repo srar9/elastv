@@ -1,4 +1,24 @@
-# Transmisión a Telegram: estabilidad y diagnóstico
+# El Ciro TV: sitio web deportivo
+
+La experiencia pública funciona desde la web: agenda → partido → elegir canal → video.
+Cada encuentro abre `/partido/<partido>` con todas sus señales publicadas, sin reproducir
+automáticamente el primer canal. Las opciones conservan el nombre y el idioma del origen,
+y cada una abre el reproductor del canal seleccionado. Desde el video se puede regresar
+a la selección completa o cambiar de canal en el selector. El cambio automático ante
+fallos puede desactivarse para respetar una selección manual.
+
+La competición y el horario identifican el encuentro junto con su nombre, para evitar
+mezclar señales de partidos homónimos. Los eventos sin canales muestran una página de
+señales pendientes, y los enlaces a partidos retirados vuelven a la cartelera mediante
+un mensaje claro. No se añaden canales ajenos como si retransmitieran el partido.
+
+El bot público queda desactivado por defecto. `ENABLE_PUBLIC_BOT=1` permite restaurarlo
+si se necesita; el bot de administración de transmisiones se mantiene separado. La web
+se puede visitar desde cualquier navegador sin utilizar el bot público.
+
+Pruebas del recorrido web: `python -m unittest discover -s tests -p website_checks.py -v`.
+
+## Transmisión a Telegram: estabilidad y diagnóstico
 
 Bot multicanal, lanzador manual para PC y aplicación web. El motor comparte un perfil H.264/AAC de 720p a 30 FPS, con fotogramas clave cada dos segundos, límites de bitrate y corrección de audio. Requiere Python 3.11+ y FFmpeg 6.1+ con libx264 y la opción HLS `seg_max_retry`. Los Dockerfile usan Debian Trixie para disponer de esta opción.
 
@@ -87,7 +107,7 @@ En PC:
 - `ejecutar_bot_en_pc.bat`: bot local con perfil de codificación compartido.
 - `python bot_stream_multicanal.py`: bot multicanal con supervisión por pantalla.
 
-En Railway/VPS, el contenedor instala FFmpeg y ejecuta `start.sh`, que inicia los dos bots y la web. Configura `TELEGRAM_BOT_TOKEN` para el bot multicanal y `ADMIN_USER_IDS` con los administradores adicionales separados por comas. Usa una única instancia del bot por token y evita ejecutar el bot de PC y el de nube simultáneamente con la misma clave de transmisión.
+En Railway/VPS, el contenedor instala FFmpeg y ejecuta `start.sh`, que inicia la web y el bot de administración. El bot público se inicia solo con `ENABLE_PUBLIC_BOT=1`. Configura `TELEGRAM_BOT_TOKEN` para el bot multicanal y `ADMIN_USER_IDS` con los administradores adicionales separados por comas. Usa una única instancia del bot por token y evita ejecutar el bot de PC y el de nube simultáneamente con la misma clave de transmisión.
 
 Usa la URL de servidor y la clave que Telegram muestre para tu sala. El bot acepta una URL RTMP/RTMPS completa como destino; si solo recibe una clave, usa su servidor predeterminado. Las credenciales guardadas en los archivos de configuración locales no deben publicarse.
 

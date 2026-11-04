@@ -5,9 +5,10 @@ const vm=require('node:vm');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function harness(events, config={match:'a-vs-b',title:'A vs B',channel:'first',competition:'Liga',mode:'watch'}) {
     const elements={}, listeners={}, calls=[];
-    for(const id of ['liveFrame','playerWrapper','signalSelect','playerStatus','reconnect','fullscreen','backToBot']) {
+    for(const id of ['liveFrame','playerWrapper','signalSelect','playerStatus','reconnect','fullscreen','autoSwitch']) {
         elements[id]={hidden:true,textContent:'',listeners:{},addEventListener(event,fn){this.listeners[event]=fn;}};
     }
+    elements.autoSwitch.checked=true;
     elements.playerConfig={textContent:JSON.stringify(config)};
     const frame=elements.liveFrame;frame.contentWindow={};frame.src='/embed/'+config.channel;
     const select=elements.signalSelect;select.options=[{value:`https://test.local/ver/${config.channel}?m=${config.match}&mode=watch`}];select.selectedIndex=0;
@@ -22,8 +23,9 @@ function harness(events, config={match:'a-vs-b',title:'A vs B',channel:'first',c
 }
 
 (async()=>{
-    const fixture=[{match_slug:'a-vs-b',channels:[{slug:'first',name:'Primera'},{slug:'backup',name:'Respaldo'}]},
-                   {match_slug:'unrelated',channels:[{slug:'wrong-game',name:'Otro partido'}]}];
+    const fixture=[{match_slug:'a-vs-b',competition:'Liga',starts_at:'today-20',channels:[{slug:'first',name:'Primera'},{slug:'backup',name:'Respaldo'}]},
+                   {match_slug:'unrelated',competition:'Liga',channels:[{slug:'wrong-game',name:'Otro partido'}]},
+                   {match_slug:'a-vs-b',competition:'Other league',channels:[{slug:'other-league',name:'Otro torneo'}]}];
     const run=harness(fixture);await flush();
     run.state('first','failed',{origin:'https://untrusted.example'});await flush();
     assert.equal(run.frame.src,'/embed/first','Untrusted iframe messages must not switch the video');
@@ -47,5 +49,16 @@ function harness(events, config={match:'a-vs-b',title:'A vs B',channel:'first',c
 
     const missing=harness([{match_slug:'other',channels:[{slug:'wrong',name:'Incorrecta'}]}]);
     await flush();missing.state('first','failed');await flush();assert.equal(missing.frame.src,'/embed/first');
+
+    const manual=harness(fixture);manual.elements.autoSwitch.checked=false;
+    await flush();manual.state('first','failed');await flush();assert.equal(manual.frame.src,'/embed/first','Respect manual-only channel selection');
+    assert.match(manual.elements.playerStatus.textContent,/Selecciona otro canal/);
+
+    const timed=harness([...fixture,{match_slug:'a-vs-b',competition:'Liga',starts_at:'today-22',channels:[{slug:'wrong-time',name:'Otra hora'}]}],
+        {match:'a-vs-b',title:'A vs B',channel:'first',competition:'Liga',starts_at:'today-20',mode:''});
+    await flush();timed.state('first','failed');await flush();assert.equal(timed.frame.src,'/embed/backup');assert.equal(timed.select.options.length,2);
+
+    const ambiguous=harness([fixture[0],{...fixture[0],starts_at:'today-22'}]);
+    await flush();ambiguous.state('first','failed');await flush();assert.equal(ambiguous.frame.src,'/embed/first','Ambiguous events must not supply unrelated channels');
     console.log('Player behavior OK: correct fallback, origin checks, no unrelated sources, bounded recovery, selected-source reconnect.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

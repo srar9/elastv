@@ -9,12 +9,12 @@
 <section aria-label="Agenda de hoy"><div class="section-heading"><h2>Hoy</h2><span><span id="resultCount">{{ events|length }}</span> eventos</span></div>
 {% if events %}<div class="event-list" id="eventList">
 {% for ev in events %}
-{% if ev.channels %}<a class="event-row" href="{{ url_for('player_view', slug=ev.channels[0].slug, m=ev.match_slug, title=ev.match, c=ev.competition) }}"{% else %}<article class="event-row"{% endif %}
+<a class="event-row" href="{{ url_for('match_view', match_slug=ev.match_slug, c=ev.competition, at=ev.get('starts_at','')) }}" aria-label="Elegir canal para {{ ev.match }}"
  data-search="{{ ev.match }} {{ ev.competition }}" data-live="{{ 'true' if ev.is_live else 'false' }}">
 <div class="event-time"><span>{{ ev.time }}</span>{% if ev.is_live %}<span class="live-label">Ahora</span>{% endif %}</div>
 <div class="event-description"><h3>{{ ev.match }}</h3><p>{{ ev.competition }}</p></div>
-{% if ev.channels %}<span class="play-circle" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11L13 8z"/></svg></span>{% else %}<span class="pending">Señal pendiente</span>{% endif %}
-{% if ev.channels %}</a>{% else %}</article>{% endif %}
+{% if ev.channels %}<span class="event-channel-choice"><span>{{ ev.channels|length }} {{ 'canal' if ev.channels|length == 1 else 'canales' }}</span><span aria-hidden="true">→</span></span>{% else %}<span class="pending">Por anunciar</span>{% endif %}
+</a>
 {% endfor %}</div>
 <div class="empty" id="noResults" hidden><h2>Ninguna coincidencia.</h2><p>Prueba otro equipo, torneo o deporte.</p><button class="text-link" id="resetSearch">Ver todos los eventos</button></div>
 <p class="schedule-note">Los horarios pueden cambiar. «Ahora» indica la franja estimada del evento.</p>

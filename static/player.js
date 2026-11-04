@@ -24,19 +24,24 @@
     // Load only alternatives registered for this exact event, while the first
     // video is already connecting. A channel alone never switches to a random channel.
     const signalsReady=config.match===config.channel?Promise.resolve():fetch('/api/partidos').then(response=>response.ok?response.json():null).then(data=>{
-        const event=data?.events?.find(event=>event.match_slug===config.match);
+        const matches=data?.events?.filter(event=>event.match_slug===config.match&&(!config.competition||event.competition===config.competition)&&(!config.starts_at||event.starts_at===config.starts_at))||[];
+        const event=matches.length===1?matches[0]:null;
         if(!event)return;
         const known=new Set([...select.options].map(optionChannel));
         for(const channel of event.channels||[]) {
             if(known.has(channel.slug))continue;
             const url=new URL('/ver/'+encodeURIComponent(channel.slug),location.origin);
-            url.search=new URLSearchParams({m:config.match,title:config.title,c:config.competition,mode:config.mode});
+            const params=new URLSearchParams({m:config.match,title:config.title,c:config.competition});
+            if(config.starts_at)params.set('at',config.starts_at);
+            if(config.mode)params.set('mode',config.mode);
+            url.search=params;
             const option=document.createElement('option');option.value=url.href;option.textContent=channel.name;
             select.append(option);known.add(channel.slug);
         }
     }).catch(()=>{});
     async function nextSignal() {
         if(switching||disposed)return;
+        if(document.getElementById('autoSwitch')?.checked===false){message('Este canal no responde. Selecciona otro canal del partido o pulsa Reconectar.');return;}
         switching=true;const failedChannel=currentChannel;
         message('La señal falló. Buscando otra opción del mismo partido…');
         try {
@@ -45,7 +50,7 @@
             if(!next){await signalsReady;next=available();}
             if(disposed||failedChannel!==currentChannel)return;
             if(next)switchSignal(next,true);
-            else message('No hay otra señal disponible para este '+(config.match===config.channel?'canal':'partido')+'. Puedes reconectar o volver al bot.');
+            else message('No hay otra señal disponible para este '+(config.match===config.channel?'canal':'partido')+'. Puedes reconectar o volver a la cartelera.');
         }finally{switching=false;}
     }
     window.addEventListener('message',event=>{
@@ -63,7 +68,6 @@
     presence();const timer=setInterval(presence,10000);
     window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);presence(true);});
     select.addEventListener('change',()=>switchSignal(select.options[select.selectedIndex]));
-    document.getElementById('backToBot')?.addEventListener('click',event=>{if(window.Telegram?.WebApp?.initData){event.preventDefault();window.Telegram.WebApp.close();}});
     document.getElementById('reconnect').addEventListener('click',()=>{
         tried.clear();tried.add(currentChannel);playing=false;presence();message('Reconectando la señal…');frame.src='/embed/'+encodeURIComponent(currentChannel)+'?refresh=1';
     });

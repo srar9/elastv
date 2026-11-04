@@ -3,9 +3,9 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f5f7">
 <title>{% block title %}El Ciro · Deportes en directo{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='minimal.css', v='4') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='minimal.css', v='5') }}">
 <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
-<script src="{{ url_for('static', filename='minimal.js', v='3') }}" defer></script>
+<script src="{{ url_for('static', filename='minimal.js', v='4') }}" defer></script>
 {% block head %}{% endblock %}
 </head><body{% if request.args.get('mode') == 'watch' %} class="watch-mode"{% endif %}>
 <a class="skip-link" href="#main">Ir al contenido</a>
