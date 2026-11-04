@@ -61,3 +61,5 @@ scratch/
 *.zip
 node_modules/
 el-ciro-plataforma/
+netlify-site/dist/
+.netlify/
