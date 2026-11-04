@@ -66,7 +66,8 @@ class PublicChecks(unittest.TestCase):
                 public_bot.handle_message(dict(chat=dict(id=user_id,type='private'), **{'from':dict(id=user_id)}, text='/start'))
                 send.assert_called_once()
                 schedule.assert_not_called()
-                rows = api.call_args.kwargs['reply_markup']['inline_keyboard']
+                api.assert_not_called()
+                rows = send.call_args.args[2]
                 self.assertTrue(any('web_app' in item and item['web_app']['url'] == public_bot.BASE_URL+'/' for row in rows for item in row))
                 self.assertEqual(any('Estadísticas' in item['text'] for row in rows for item in row), user_id == audience.OWNER_ID)
         with patch.object(public_bot, 'send') as send:
@@ -106,11 +107,10 @@ class PublicChecks(unittest.TestCase):
             public_bot.handle_message(dict(chat=dict(id=123,type='private'), **{'from':dict(id=123)}, text='/start'))
             send.assert_called_once()
             schedule.assert_not_called()
-            self.assertTrue(send.call_args.kwargs['remove_keyboard'])
+            self.assertNotIn('remove_keyboard',send.call_args.kwargs)
             self.assertNotIn('Team',send.call_args.args[1])
-            self.assertEqual(api.call_args.args[0],'editMessageReplyMarkup')
-            self.assertEqual(api.call_args.kwargs['message_id'],17)
-            rows=api.call_args.kwargs['reply_markup']['inline_keyboard']
+            api.assert_not_called()
+            rows=send.call_args.args[2]
             video_buttons=[item for row in rows for item in row if '/ver/' in item.get('web_app',{}).get('url','')]
             self.assertEqual(len(video_buttons),0)
             self.assertTrue(any(item.get('web_app',{}).get('url')==public_bot.BASE_URL+'/' for row in rows for item in row))
@@ -125,6 +125,24 @@ class PublicChecks(unittest.TestCase):
             schedule.assert_not_called()
             self.assertIn('Escribe aquí',send.call_args.args[1])
             send.assert_called_once()
+
+    def test_start_attaches_buttons_to_the_actual_send_message_payload(self):
+        for user_id in (123,audience.OWNER_ID):
+            with self.subTest(user_id=user_id),patch.object(public_bot.requests,'post') as post,patch.object(public_bot.schedule,'get') as schedule:
+                post.return_value.json.return_value={'ok':True,'result':{'message_id':17}}
+                public_bot.handle_message(dict(chat=dict(id=user_id,type='private'),**{'from':dict(id=user_id)},text='/start'))
+                post.assert_called_once()
+                self.assertTrue(post.call_args.args[0].endswith('/sendMessage'))
+                payload=post.call_args.kwargs['json']
+                self.assertEqual(payload['chat_id'],user_id)
+                self.assertEqual(payload['text'],public_bot.HOME_TEXT)
+                self.assertNotIn('remove_keyboard',payload['reply_markup'])
+                rows=payload['reply_markup']['inline_keyboard']
+                self.assertTrue(any(item.get('callback_data')=='menu:events' for row in rows for item in row))
+                self.assertTrue(any(item.get('url')=='https://t.me/elasdelfutbol' for row in rows for item in row))
+                self.assertTrue(any('web_app' in item for row in rows for item in row))
+                self.assertEqual(any(item.get('callback_data')=='menu:stats' for row in rows for item in row),user_id==audience.OWNER_ID)
+                schedule.assert_not_called()
 
     def test_menu_buttons_edit_existing_message(self):
         events=[dict(match='A vs B',match_slug='a-vs-b',competition='Basketball',time='20:00',channels=[dict(slug='espn',name='ESPN')])]
@@ -205,8 +223,8 @@ class PublicChecks(unittest.TestCase):
             public_bot.handle_message(dict(chat=dict(id=123,type='private'),**{'from':dict(id=123)},text='/start'))
             send.assert_called_once()
             schedule.assert_not_called()
-            self.assertEqual(api.call_args.args[0],'editMessageReplyMarkup')
-            rows=api.call_args.kwargs['reply_markup']['inline_keyboard']
+            api.assert_not_called()
+            rows=send.call_args.args[2]
             self.assertTrue(any('web_app' in item for row in rows for item in row))
 
     def test_app_command_shows_miniapp_without_loading_agenda(self):

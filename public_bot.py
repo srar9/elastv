@@ -100,12 +100,9 @@ def display(chat_id, text, rows, message_id=None):
 
 def show_home(chat_id, user_id, private, message_id=None):
     rows = home_rows(private and user_id == OWNER_ID, private)
-    if message_id is not None:
-        return display(chat_id, HOME_TEXT, rows, message_id)
-    # Start is one stable menu. Lists load only when the user selects a button.
-    result = send(chat_id, HOME_TEXT, remove_keyboard=True)
-    return api("editMessageReplyMarkup", chat_id=chat_id, message_id=result["message_id"],
-               reply_markup=dict(inline_keyboard=rows))
+    # Attach the inline keyboard to the original response. A second request to
+    # add buttons can fail after the welcome text has already been delivered.
+    return display(chat_id, HOME_TEXT, rows, message_id)
 
 
 def show_app(chat_id, user_id, private):
