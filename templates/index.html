@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Partidos de hoy · El Ciro{% endblock %}
 {% block content %}
-<section class="intro compact"><p class="eyebrow">Tu agenda deportiva.</p><h1>Partidos de hoy.</h1><p>Todos los deportes, ordenados por hora de Venezuela.</p></section>
+<section class="intro compact"><p class="eyebrow">Tu agenda deportiva.</p><h1>Partidos de hoy.</h1><p>Encuentra tu partido y disfruta del directo.</p></section>
 <div class="toolbar">
 <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.8" cy="10.8" r="7.1"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="matchSearch" aria-label="Buscar equipo, torneo o deporte" placeholder="Equipo, torneo o deporte" autocomplete="off"></label>
 <div class="segmented" role="group" aria-label="Mostrar partidos"><button type="button" data-filter="all" aria-pressed="true">Todos</button><button type="button" data-filter="live" aria-pressed="false">Ahora</button></div>
 </div>
-<section aria-label="Agenda de hoy"><div class="section-heading"><h2>Hoy</h2><span><span id="resultCount">{{ events|length }}</span> eventos · Hora de Venezuela</span></div>
+<section aria-label="Agenda de hoy"><div class="section-heading"><h2>Hoy</h2><span><span id="resultCount">{{ events|length }}</span> eventos</span></div>
 {% if events %}<div class="event-list" id="eventList">
 {% for ev in events %}
 {% if ev.channels %}<a class="event-row" href="{{ url_for('player_view', slug=ev.channels[0].slug, m=ev.match_slug, title=ev.match, c=ev.competition) }}"{% else %}<article class="event-row"{% endif %}

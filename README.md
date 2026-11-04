@@ -17,13 +17,15 @@ Un aviso por una reclamación de derechos de autor indica una restricción de la
 `public_bot.py` atiende al público con `PUBLIC_BOT_TOKEN` (o `ELCIRO_BOT_TOKEN`).
 El arranque mantiene el bot de transmisiones separado y ejecuta este bot público para
 el segundo token. No inicia FFmpeg ni permite cambiar claves o detener emisiones.
-`/start` envía un solo mensaje con el menú, el botón «Abrir mini app» y la primera página
-de partidos ordenados por hora de Venezuela. La mini app está disponible inmediatamente;
-la agenda se carga después en ese mismo mensaje. Si falla la agenda, el acceso a la mini
-app y los demás botones permanecen. El menú fijo de Telegram también abre la mini app,
-y `/app` ofrece acceso directo. La mini app muestra la agenda completa; en el chat cada
-listado muestra cinco resultados por página. Canales, Buscar y las estadísticas privadas
-del dueño siguen accesibles desde el menú. Anterior, Siguiente,
+`/start` envía un solo mensaje con el menú: Partidos del día, Canales, Buscar,
+Unirse al canal principal (@elasdelfutbol) y Abrir mini app. No consulta ni abre la agenda
+automáticamente. Al elegir Partidos del día se muestra la cartelera ordenada por hora
+en ese mismo mensaje, sin etiquetas de zona horaria. El enlace al canal principal
+también aparece en los listados y en el pie de la mini app; `/canal` ofrece acceso directo.
+El menú fijo de Telegram también abre la mini app, y `/app` ofrece acceso directo.
+La mini app muestra la agenda completa; en el chat cada listado muestra cinco resultados
+por página. Las estadísticas privadas del dueño siguen accesibles desde el menú.
+Anterior, Siguiente,
 Menú y Actualizar editan ese mensaje, sin enviar nuevas páginas al chat. Las búsquedas
 combinan partidos y canales en un único listado. Las estadísticas del dueño también
 están paginadas. Los listados conservan una copia estable durante 30 minutos, limitada

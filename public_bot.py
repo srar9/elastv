@@ -16,12 +16,14 @@ from audience import OWNER_ID, bot_entry, summary
 TOKEN = os.environ.get("PUBLIC_BOT_TOKEN") or os.environ.get("ELCIRO_BOT_TOKEN", "")
 BASE_URL = (os.environ.get("WEB_APP_BASE_URL") or
             "https://" + (os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "web-production-dc68f.up.railway.app")).rstrip("/")
+PUBLIC_CHANNEL_URL = "https://t.me/elasdelfutbol"
 COMMANDS = [dict(command=c, description=d) for c, d in (
-    ("start", "Menú, mini app y partidos por hora"),
+    ("start", "Abrir el menú de El Ciro TV"),
     ("app", "Abrir la mini app con la agenda completa"),
-    ("partidos", "Partidos de hoy, ordenados por hora"),
+    ("partidos", "Partidos del día"),
     ("buscar", "Buscar equipo, torneo, deporte o canal"),
-    ("canales", "Todos los canales disponibles"))]
+    ("canales", "Todos los canales disponibles"),
+    ("canal", "Unirse al canal principal @elasdelfutbol"))]
 USERNAME = None
 
 
@@ -65,8 +67,9 @@ VIEW_LOCK = threading.Lock()
 VIEW_TTL = 1800
 HOME_TEXT = (
     "📺 <b>El Ciro TV</b>\n\n"
-    "Tu agenda deportiva, ordenada por hora de Venezuela.\n"
-    "Abre la mini app para ver todos los partidos o elige uno aquí."
+    "Bienvenido. Elige una opción para continuar.\n\n"
+    "Encuentra tu partido y toca su botón para ver el video.\n"
+    "Novedades y avisos en nuestro canal principal: @elasdelfutbol."
 )
 
 
@@ -74,10 +77,15 @@ def action(text, data):
     return dict(text=text, callback_data=data)
 
 
+def join_channel_button():
+    return dict(text="📣 Unirse al canal principal", url=PUBLIC_CHANNEL_URL)
+
+
 def home_rows(owner=False, private=True):
-    rows = [[button("📱 Abrir mini app", "/", private)],
-            [action("⚽ Partidos por hora", "menu:events")],
-            [action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")]]
+    rows = [[action("⚽ Partidos del día", "menu:events")],
+            [action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")],
+            [join_channel_button()],
+            [button("📱 Abrir mini app", "/", private)]]
     if owner:
         rows.append([action("📊 Estadísticas", "menu:stats")])
     return rows
@@ -92,17 +100,12 @@ def display(chat_id, text, rows, message_id=None):
 
 def show_home(chat_id, user_id, private, message_id=None):
     rows = home_rows(private and user_id == OWNER_ID, private)
-    if message_id is None:
-        # Make the mini app available immediately, then load the first games into
-        # this same message. Never send the complete agenda as multiple messages.
-        result = send(chat_id, HOME_TEXT, remove_keyboard=True)
-        message_id = result["message_id"]
-        api("editMessageReplyMarkup", chat_id=chat_id, message_id=message_id,
-            reply_markup=dict(inline_keyboard=rows))
-    try:
-        return show_events(chat_id, user_id, private, message_id)
-    except ScheduleUnavailable:
-        return display(chat_id, HOME_TEXT + "\n\nLa agenda no pudo actualizarse. Puedes abrir la mini app o probar los canales.", rows, message_id)
+    if message_id is not None:
+        return display(chat_id, HOME_TEXT, rows, message_id)
+    # Start is one stable menu. Lists load only when the user selects a button.
+    result = send(chat_id, HOME_TEXT, remove_keyboard=True)
+    return api("editMessageReplyMarkup", chat_id=chat_id, message_id=result["message_id"],
+               reply_markup=dict(inline_keyboard=rows))
 
 
 def show_app(chat_id, user_id, private):
@@ -138,7 +141,7 @@ def render_page(token, view, page):
     else:
         text += "\n\nNo hay resultados. Prueba otra búsqueda o vuelve al menú."
     app_path = "/canales" if view["kind"] == "channels" else "/"
-    rows = [[button("📱 Abrir mini app", app_path, view["private"])]] if view["kind"] != "stats" else []
+    rows = []
     for item in selected:
         kind, data = item["kind"], item["data"]
         if kind == "event":
@@ -165,6 +168,9 @@ def render_page(token, view, page):
         rows.append([action("📺 Canales", "menu:channels"), action("🔎 Buscar", "menu:search")])
         if view["private"] and view["user_id"] == OWNER_ID:
             rows.append([action("📊 Estadísticas", "menu:stats")])
+    if view["kind"] != "stats":
+        rows.append([join_channel_button()])
+        rows.append([button("📱 Abrir mini app", app_path, view["private"])])
     rows.append([action("‹ Inicio", "menu:home"), action(refresh_label, view["refresh"])])
     return text, rows
 
@@ -176,7 +182,7 @@ def catalog_channels():
 
 def show_events(chat_id, user_id, private, message_id=None):
     events = chronological(schedule.get())
-    heading = "⚽ <b>Partidos de hoy · por hora</b>\nHora de Venezuela · Toca el partido para ver su video.\nMini app: agenda completa, búsqueda y canales."
+    heading = "⚽ <b>Partidos del día</b>\nToca el partido para abrir directamente su video."
     if schedule.stale:
         heading += "\nAgenda guardada; la fuente no pudo actualizarse."
     return new_view(chat_id, user_id, private, "events", [dict(kind="event", data=e) for e in events],
@@ -224,7 +230,7 @@ def handle_message(message):
         return
     private = chat.get("type") == "private"
     raw = message.get("text", "").strip()
-    shortcuts = {"⚽ Partidos de hoy": "/partidos", "📺 Canales": "/canales",
+    shortcuts = {"⚽ Partidos de hoy": "/partidos", "⚽ Partidos del día": "/partidos", "📺 Canales": "/canales",
                  "🔎 Buscar": "/buscar", "📊 Estadísticas": "/estadisticas"}
     text = normalize_command(shortcuts.get(raw, raw), USERNAME)
     if not text:
@@ -236,6 +242,9 @@ def handle_message(message):
         return show_home(chat_id, user_id, private)
     if command in ("/app", "/web", "/miniapp"):
         return show_app(chat_id, user_id, private)
+    if command == "/canal":
+        return display(chat_id, "📣 <b>Canal principal</b>\n\nÚnete a @elasdelfutbol para recibir novedades y avisos.",
+                       [[join_channel_button()], [action("‹ Inicio", "menu:home")]])
     if command in ("/estadisticas", "/stats"):
         return show_stats(chat_id, user_id, private)
     if command in ("/canales", "/deportes"):
